@@ -77,4 +77,47 @@ export const api = {
       headers: { "X-Access-Token": token },
     });
   },
+  async getResult(taskId: string, token: string): Promise<ResumeResult> {
+    return request<ResumeResult>(
+      `/api/tasks/${taskId}/result?token=${encodeURIComponent(token)}`,
+      { headers: { "X-Access-Token": token } }
+    );
+  },
+  async deleteResume(resumeId: string, token: string): Promise<void> {
+    return request<void>(`/api/resumes/${resumeId}?token=${encodeURIComponent(token)}`, {
+      method: "DELETE",
+      headers: { "X-Access-Token": token },
+    });
+  },
 };
+
+// ── 结果与结构化类型（M1）──
+export interface ResumeStructured {
+  name: string | null;
+  title: string | null;
+  summary: string | null;
+  skills: string[];
+  experience_years: number | null;
+  education: string[];
+  work_history: string[];
+  projects: string[];
+  languages: string[];
+  location: string | null;
+}
+export interface MatchItem {
+  job_id: string;
+  title: string | null;
+  title_zh: string | null;
+  category: string | null;
+  score: number;
+  matched_skills: string[];
+  missing_skills: string[];
+  rationale: string | null;
+}
+export interface ResumeResult {
+  task_id: string;
+  resume_id: string;
+  status: string;
+  structured: ResumeStructured | null;
+  matches: MatchItem[];
+}

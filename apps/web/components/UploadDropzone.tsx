@@ -19,6 +19,7 @@ export default function UploadDropzone() {
         setStatus(s);
         if (s.status === "done") {
           setPhase("done");
+          window.location.href = `/result/${taskId}?token=${encodeURIComponent(token)}`;
           return;
         }
         if (s.status === "failed") {

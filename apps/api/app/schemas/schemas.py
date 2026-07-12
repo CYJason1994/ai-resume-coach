@@ -46,3 +46,39 @@ class SeedResponse(BaseModel):
     skipped: int
     errors: int
     message: str
+
+
+# ── 结构化抽取（M1-2）──
+class ResumeStructured(BaseModel):
+    """上送给匹配的简历结构化视图（PIPL：不存身份证/手机号等强 PII）。"""
+
+    name: str | None = None
+    title: str | None = None  # 当前/目标职位
+    summary: str | None = None
+    skills: list[str] = []
+    experience_years: int | None = None
+    education: list[str] = []
+    work_history: list[str] = []
+    projects: list[str] = []
+    languages: list[str] = []
+    location: str | None = None
+
+
+# ── 匹配结果（M1-3）──
+class MatchItem(BaseModel):
+    job_id: str
+    title: str | None = None
+    title_zh: str | None = None
+    category: str | None = None
+    score: float
+    matched_skills: list[str] = []
+    missing_skills: list[str] = []
+    rationale: str | None = None
+
+
+class ResumeResultResponse(BaseModel):
+    task_id: str
+    resume_id: str
+    status: str
+    structured: ResumeStructured | None = None
+    matches: list[MatchItem] = []

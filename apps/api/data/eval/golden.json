@@ -1,0 +1,26 @@
+[
+  {
+    "id": "swe_backend",
+    "raw_text": "张三\n后端工程师\n5年工作经验\n技能：Python、Go、Kubernetes、PostgreSQL、Redis、gRPC\n负责高并发订单系统，使用 Django 与 FastAPI 构建微服务。\n教育：计算机科学本科",
+    "expect_skills_contain": ["python", "go"],
+    "expect_experience_years": 5
+  },
+  {
+    "id": "fe_engineer",
+    "raw_text": "李四\n前端开发\n熟练 React、TypeScript、Vue、Webpack、Tailwind CSS。\n3 years 经验，做过多个数据可视化项目。",
+    "expect_skills_contain": ["react", "typescript"],
+    "expect_experience_years": 3
+  },
+  {
+    "id": "data_engineer",
+    "raw_text": "王五\n大数据工程师\n使用 Python、Spark、Kafka、Airflow、Pandas 进行 ETL 管道建设。\n8年经验，熟悉 AWS 与 Terraform。",
+    "expect_skills_contain": ["python", "kafka"],
+    "expect_experience_years": 8
+  },
+  {
+    "id": "short_text",
+    "raw_text": "测试简历 只有很少内容",
+    "expect_skills_contain": [],
+    "expect_experience_years": null
+  }
+]

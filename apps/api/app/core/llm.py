@@ -77,10 +77,17 @@ class DegradationState:
 
 class LlmProvider:
     def __init__(self) -> None:
+        # 无 API KEY 时不含 Authorization header（调用会 401，被降级逻辑正常捕获），
+        # 避免 httpx 因 "Bearer "（尾随空格）抛 InvalidHeader。
+        headers = (
+            {"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"}
+            if settings.DEEPSEEK_API_KEY
+            else {}
+        )
         self._client = httpx.AsyncClient(
             base_url=settings.LLM_BASE_URL,
             timeout=settings.LLM_REQUEST_TIMEOUT,
-            headers={"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"},
+            headers=headers,
         )
         self._sem = asyncio.Semaphore(settings.LLM_CONCURRENCY)
         self.degradation = DegradationState(settings.LLM_FAILURE_THRESHOLD)

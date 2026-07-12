@@ -8,10 +8,11 @@ docker-compose worker 服务执行：`python -m app.workers.worker`。
 from __future__ import annotations
 
 from arq.connections import RedisSettings
+from arq.cron import cron
 from arq.worker import Worker
 
 from app.core.config import get_settings
-from app.workers.tasks import process_resume_task, seed_jobs_task
+from app.workers.tasks import cleanup_expired, process_resume_task, seed_jobs_task
 
 settings = get_settings()
 redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
@@ -26,13 +27,15 @@ async def on_startup(ctx) -> None:
 
 def build_worker() -> Worker:
     return Worker(
-        functions=[process_resume_task, seed_jobs_task],
+        functions=[process_resume_task, seed_jobs_task, cleanup_expired],
         redis_settings=redis_settings,
         on_startup=on_startup,
         # 并发与重试（生产可调）
         max_jobs=10,
         job_timeout=120,
         keep_result=3600,
+        # 合规 TTL 清理：每日 04:00 执行 cleanup_expired
+        cron_jobs=[cron(cleanup_expired, hour=4, minute=0)],
     )
 
 

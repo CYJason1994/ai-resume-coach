@@ -8,17 +8,21 @@
 """
 from __future__ import annotations
 
+import time
+from collections import defaultdict, deque
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.db import init_db
 from app.core.errors import register_error_handlers
 from app.core.llm import get_llm
 from app.core.logging import bind_request_id, setup_logging
-from app.routers import health, jobs, tasks, upload
+from app.routers import health, jobs, result, resumes, tasks, upload
 
 settings = get_settings()
 setup_logging()
@@ -56,3 +60,33 @@ app.include_router(health.router)
 app.include_router(upload.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
+app.include_router(result.router, prefix="/api")
+app.include_router(resumes.router, prefix="/api")
+
+
+# ── 上传限流（M1-6）：基于客户端 IP 的内存令牌桶；生产改用 Redis ──
+_upload_hits: dict[str, deque[float]] = defaultdict(deque)
+UPLOAD_LIMIT = 10
+UPLOAD_WINDOW = 60.0
+
+
+@app.middleware("http")
+async def rate_limit_upload(request: Request, call_next):
+    if request.url.path == "/api/upload" and request.method == "POST":
+        ip = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        dq = _upload_hits[ip]
+        while dq and now - dq[0] > UPLOAD_WINDOW:
+            dq.popleft()
+        if len(dq) >= UPLOAD_LIMIT:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "title": "RATE_LIMITED",
+                    "status": 429,
+                    "detail": "上传过于频繁，请稍后再试",
+                    "request_id": getattr(request.state, "request_id", None),
+                },
+            )
+        dq.append(now)
+    return await call_next(request)
