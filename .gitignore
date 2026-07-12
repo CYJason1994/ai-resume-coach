@@ -6,6 +6,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+.deps/            # 沙箱/本地 pip --target 安装目录（非项目依赖）
 *.egg-info/
 dist/
 build/
