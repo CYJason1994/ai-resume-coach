@@ -15,8 +15,10 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
 
 settings = get_settings()
+logger = get_logger("db")
 
 engine = create_async_engine(
     settings.DATABASE_URL,
@@ -55,7 +57,10 @@ async def init_db() -> None:
                 )
             )
     except Exception as e:  # noqa: BLE001
-        print(f"[init_db] 跳过（数据库暂不可达）: {e}")
+        # 可观测：用结构化日志而非 print 静默吞掉；生产必须建表成功（fail-fast）
+        logger.warning("init_db_skipped", error=str(e), env=settings.ENVIRONMENT)
+        if settings.is_production:
+            raise
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

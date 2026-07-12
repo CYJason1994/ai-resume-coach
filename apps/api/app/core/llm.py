@@ -3,7 +3,8 @@
 关键点（v0.3）：
 - 模型 ID 配置化（chat / embed）。
 - 全局并发信号量（LLM_CONCURRENCY=6）。
-- 降级状态机：连续 LLM_FAILURE_THRESHOLD 次失败 → 降级 + 冷却探测。
+- 降级状态机：连续 LLM_FAILURE_THRESHOLD 次失败 → 降级 + 冷却；冷却期节流探测恢复
+  （M0.1 修正：原 try_recover 在每次调用入口即清零降级，冷却机制形同虚设）。
 - 成本护栏：单份熔断（LLM_COST_CAP_PER_RESUME）+ 日预算（M0 内存计数，M1 改 Redis）。
 """
 from __future__ import annotations
@@ -29,13 +30,15 @@ _APPROX_USD_PER_1K_TOKENS = {
 
 
 class DegradationState:
-    """单点 LLM 韧性（R2-C3）。连续失败 → 降级；冷却期探活恢复。"""
+    """单点 LLM 韧性（R2-C3）。连续失败 → 降级冷却；冷却到期才节流探测，成功才恢复。"""
 
-    def __init__(self, threshold: int, cooldown_s: float = 30.0) -> None:
+    def __init__(self, threshold: int, cooldown_s: float = 30.0, probe_backoff_s: float = 30.0) -> None:
         self.threshold = threshold
         self.cooldown_s = cooldown_s
+        self.probe_backoff_s = probe_backoff_s
         self._failures = 0
         self._degraded_until = 0.0
+        self._next_probe_at = 0.0
 
     @property
     def degraded(self) -> bool:
@@ -44,18 +47,32 @@ class DegradationState:
     def note_success(self) -> None:
         self._failures = 0
         self._degraded_until = 0.0
+        self._next_probe_at = 0.0
 
     def note_failure(self) -> None:
         self._failures += 1
         if self._failures >= self.threshold:
             self._degraded_until = time.monotonic() + self.cooldown_s
+            self._next_probe_at = self._degraded_until + self.probe_backoff_s
             logger.warning("llm_degraded", failures=self._failures, cooldown_s=self.cooldown_s)
 
-    def try_recover(self) -> None:
-        """冷却结束后探测成功则退出降级。"""
-        if self.degraded:
-            self._degraded_until = 0.0
-            self._failures = 0
+    async def maybe_recover(self, probe) -> bool:
+        """冷却未到期直接返回 False（勿频繁探测 API）；到期则发起一次探测，成功退出降级。"""
+        if not self.degraded:
+            return True
+        now = time.monotonic()
+        if now < self._next_probe_at:
+            return False
+        ok = False
+        try:
+            ok = bool(await probe())
+        except Exception:  # noqa: BLE001
+            ok = False
+        if ok:
+            self.note_success()
+            return True
+        self._next_probe_at = now + self.probe_backoff_s
+        return False
 
 
 class LlmProvider:
@@ -87,12 +104,19 @@ class LlmProvider:
     def _budget_ok(self) -> bool:
         return self.daily_spend < settings.LLM_DAILY_BUDGET
 
+    async def _ensure_available(self) -> None:
+        """调用前校验预算与降级状态；降级冷却中直接抛错（不清除降级）。"""
+        if not self._budget_ok():
+            raise LlmUnavailableError("LLM 日预算耗尽，使用规则匹配兜底")
+        if self.degradation.degraded:
+            recovered = await self.degradation.maybe_recover(self.health_check)
+            if not recovered:
+                raise LlmUnavailableError("LLM 降级冷却中，使用规则匹配兜底")
+
     # ── 接口 ──
     async def chat(self, messages: list[dict], *, temperature: float = 0.2,
                    response_format: dict | None = None) -> str:
-        if self.degradation.degraded or not self._budget_ok():
-            self.degradation.try_recover()
-            raise LlmUnavailableError("LLM 降级中或预算耗尽，使用规则匹配兜底")
+        await self._ensure_available()
         payload: dict = {
             "model": settings.LLM_CHAT_MODEL,
             "messages": messages,
@@ -115,9 +139,7 @@ class LlmProvider:
                 raise LlmUnavailableError(str(e)) from e
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        if self.degradation.degraded:
-            self.degradation.try_recover()
-            # 嵌入失败无法软降级（匹配依赖向量）；直接抛错由调用方处理
+        await self._ensure_available()
         async with self._sem:
             try:
                 r = await self._client.post(
@@ -135,7 +157,7 @@ class LlmProvider:
                 raise LlmUnavailableError(str(e)) from e
 
     async def health_check(self) -> bool:
-        """探活：调用模型列表或最小 completion。"""
+        """探活：调用模型列表端点。"""
         try:
             r = await self._client.get("/models", timeout=10.0)
             return r.status_code == 200

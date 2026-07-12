@@ -1,12 +1,16 @@
-"""岗位源摄入触发（R2-C1 可配置）。dev 端点，触发 JobSourceProvider 摄入。"""
+"""岗位源摄入触发（R2-C1 可配置）。dev 端点，通过 ARQ 后台任务摄入。
+
+v0.3 决策「ARQ 锁死」：禁用 BackgroundTasks，岗位摄入改为入队 ARQ 任务，
+避免阻塞请求且不丢失任务（worker 重启可恢复）。亦可直接跑 scripts/seed_jobs.py 同步摄入。
+"""
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.schemas.schemas import SeedResponse
-from app.services.job_source import get_job_source
+from app.workers.tasks import enqueue_seed_jobs
 
 settings = get_settings()
 logger = get_logger("jobs")
@@ -14,22 +18,13 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.post("/seed", response_model=SeedResponse)
-async def seed_jobs(background: BackgroundTasks):
-    """摄入岗位源（O*NET / json，可配置）。
-
-    生产建议改为 ARQ 后台任务；M0 先同步+后台二选一，这里用后台任务避免阻塞。
-    """
-    provider = get_job_source()
-
-    def _run():
-        result = provider.seed()
-        logger.info("jobs_seeded", **result)
-
-    background.add_task(_run)
+async def seed_jobs():
+    """摄入岗位源（O*NET / json，可配置），经 ARQ 后台执行。"""
+    await enqueue_seed_jobs()
     return SeedResponse(
         provider=settings.JOB_SOURCE,
         ingested=0,
         skipped=0,
         errors=0,
-        message="岗位摄入已在后台启动（查看日志 / 稍后查询）",
+        message="岗位摄入任务已入队（ARQ 后台执行，查看 worker 日志 / 稍后查询）",
     )

@@ -47,6 +47,7 @@ async def ready():
     except Exception as e:  # noqa: BLE001
         checks["llm"] = f"fail:{e}"
 
-    ok = all(v == "ok" for v in checks.values() if v != "degraded") and "database" in checks and checks["database"] == "ok"
-    status = 200 if (checks.get("database") == "ok") else 503
+    # 核心依赖 DB + Redis 必须就绪才返回 200；LLM 仅 degraded 不影响就绪判定
+    all_ok = checks.get("database") == "ok" and checks.get("redis") == "ok"
+    status = 200 if all_ok else 503
     return {"status": "ok" if status == 200 else "degraded", "checks": checks}

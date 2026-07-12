@@ -79,14 +79,14 @@ services:
     volumes:
       - ./apps/api:/app
       - ./data:/app/data
-    command: arq app.workers.worker.WorkerSettings
+    command: python -m app.workers.worker
 
   web:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_PUBLIC_API_URL: http://api:3001
     depends_on:
       - api
     ports:

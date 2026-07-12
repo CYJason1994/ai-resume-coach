@@ -34,6 +34,11 @@ async def enqueue_process_resume(resume_id: uuid.UUID) -> None:
     await redis.enqueue_job("process_resume_task", str(resume_id))
 
 
+async def enqueue_seed_jobs() -> None:
+    redis = await _redis_pool()
+    await redis.enqueue_job("seed_jobs_task")
+
+
 async def process_resume_task(ctx: dict, resume_id: str) -> None:
     logger.info("process_start", resume_id=resume_id)
     async with SessionLocal() as session:
@@ -57,3 +62,15 @@ async def process_resume_task(ctx: dict, resume_id: str) -> None:
         task.progress = 100
         await session.commit()
     logger.info("process_done", resume_id=resume_id)
+
+
+async def seed_jobs_task(ctx: dict) -> None:
+    """摄入岗位源（O*NET / json，可配置）。失败不影响 API，仅记日志。"""
+    from app.services.job_source import get_job_source
+
+    logger.info("seed_start")
+    try:
+        result = await get_job_source().seed()
+        logger.info("seed_done", **result)
+    except Exception as e:  # noqa: BLE001
+        logger.error("seed_failed", error=str(e))

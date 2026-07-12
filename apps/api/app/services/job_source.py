@@ -29,6 +29,16 @@ class JobSourceProvider(ABC):
     source_code: str = "base"
     source_license: str = ""
 
+    @property
+    def effective_source_code(self) -> str:
+        """实际写入 jobs 行的来源标识（子类可覆盖，如 O*NET 回退 curated 时）。"""
+        return self.source_code
+
+    @property
+    def effective_license(self) -> str:
+        """实际写入 jobs 行的许可证（须与实际载入数据一致，避免版权标注错配）。"""
+        return self.source_license
+
     @abstractmethod
     async def _load_raw(self) -> list[dict]:
         """返回原始岗位列表（含 title/category/level/description/required_skills/soc_code）。"""
@@ -76,8 +86,8 @@ class JobSourceProvider(ABC):
                         skipped += 1
                         continue
                     job = Job(
-                        source_code=self.source_code,
-                        source_license=self.source_license,
+                        source_code=self.effective_source_code,
+                        source_license=self.effective_license,
                         title=item["title"],
                         title_zh=item.get("title_zh"),
                         category=item.get("category"),
@@ -155,11 +165,23 @@ class OnetProvider(JobSourceProvider):
         # 优先 O*NET 快照（由 data/jobs/onet/ingest.py 生成）
         snap = settings.ONET_SNAPSHOT_PATH
         if os.path.exists(snap):
+            self._used_snapshot = True
             with open(snap, "r", encoding="utf-8") as f:
                 return json.load(f)
-        # 快照缺失：回退 curated，并提示运行摄入脚本
+        # 快照缺失：回退 curated（自有 IP），并提示运行摄入脚本
+        self._used_snapshot = False
         logger.warning("onet_snapshot_missing", hint="运行 python data/jobs/onet/ingest.py 生成快照")
         return await JsonProvider()._load_raw()
+
+    @property
+    def effective_source_code(self) -> str:
+        # 回退到 curated 时，实际写入的是自有 IP 数据，来源标识须同步修正
+        return "curated" if getattr(self, "_used_snapshot", None) is False else "onet"
+
+    @property
+    def effective_license(self) -> str:
+        # 版权标注须与实际载入数据一致：CC BY 4.0 仅当真正用了 O*NET 快照
+        return "proprietary" if getattr(self, "_used_snapshot", None) is False else "CC BY 4.0"
 
 
 _PROVIDER: JobSourceProvider | None = None
