@@ -40,6 +40,10 @@ services:
       LLM_CHAT_MODEL: ${LLM_CHAT_MODEL:-deepseek-v4-flash}
       LLM_EMBED_MODEL: ${LLM_EMBED_MODEL:-deepseek-embedding}
       JOB_SOURCE: ${JOB_SOURCE:-onet}
+      STORAGE_LOCAL_DIR: /app/data/uploads
+      ONET_SNAPSHOT_PATH: /app/data/jobs/onet/snapshot.json
+      CURATED_JOBS_DIR: /app/data/jobs/curated
+      ZH_OVERLAY_PATH: /app/data/jobs/zh_overlay.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,7 +53,7 @@ services:
       - "3001:3001"
     volumes:
       - ./apps/api:/app
-      - ./data:/data
+      - ./data:/app/data
     command: uvicorn app.main:app --host 0.0.0.0 --port 3001
 
   worker:
@@ -63,6 +67,10 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       LLM_CHAT_MODEL: ${LLM_CHAT_MODEL:-deepseek-v4-flash}
       LLM_EMBED_MODEL: ${LLM_EMBED_MODEL:-deepseek-embedding}
+      STORAGE_LOCAL_DIR: /app/data/uploads
+      ONET_SNAPSHOT_PATH: /app/data/jobs/onet/snapshot.json
+      CURATED_JOBS_DIR: /app/data/jobs/curated
+      ZH_OVERLAY_PATH: /app/data/jobs/zh_overlay.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,7 +78,7 @@ services:
         condition: service_healthy
     volumes:
       - ./apps/api:/app
-      - ./data:/data
+      - ./data:/app/data
     command: arq app.workers.worker.WorkerSettings
 
   web:

@@ -38,9 +38,10 @@ docker compose -f docker-compose.dev.yml exec api python scripts/seed_jobs.py
 本地开发（无 Docker）：
 
 ```bash
-# 后端
+# 后端（从仓库根目录运行，使 data/ 相对路径生效）
 cd apps/api && python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]" && uvicorn app.main:app --reload --port 3001
+pip install -e ".[dev]"
+cd ../.. && PYTHONPATH=apps/api uvicorn app.main:app --reload --port 3001
 
 # 前端
 cd apps/web && pnpm install && pnpm dev
