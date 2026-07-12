@@ -1,0 +1,86 @@
+[
+  {
+    "title": "Frontend Developer",
+    "category": "engineering",
+    "level": "mid",
+    "description": "Builds responsive web UIs with React/Next.js, TypeScript, and modern CSS. Collaborates with designers and backend engineers.",
+    "required_skills": ["JavaScript", "TypeScript", "React", "HTML", "CSS", "Next.js", "Webpack"]
+  },
+  {
+    "title": "Backend Developer",
+    "category": "engineering",
+    "level": "mid",
+    "description": "Designs and implements server-side services, REST/GraphQL APIs, databases, and async task pipelines.",
+    "required_skills": ["Python", "FastAPI", "PostgreSQL", "Redis", "Docker", "REST API", "SQL"]
+  },
+  {
+    "title": "Full Stack Developer",
+    "category": "engineering",
+    "level": "mid",
+    "description": "Owns features end-to-end across React frontend and Python/FastAPI backend with cloud deployment.",
+    "required_skills": ["JavaScript", "TypeScript", "React", "Python", "FastAPI", "PostgreSQL", "AWS"]
+  },
+  {
+    "title": "Data Engineer",
+    "category": "data",
+    "level": "mid",
+    "description": "Builds data pipelines, warehousing, and ETL using Python, SQL, and orchestration tools.",
+    "required_skills": ["Python", "SQL", "Airflow", "Spark", "Docker", "Kafka", "ETL"]
+  },
+  {
+    "title": "Machine Learning Engineer",
+    "category": "data",
+    "level": "senior",
+    "description": "Trains, deploys, and monitors ML models in production; strong Python and MLOps skills.",
+    "required_skills": ["Python", "PyTorch", "TensorFlow", "MLOps", "Docker", "Kubernetes", "SQL"]
+  },
+  {
+    "title": "Data Analyst",
+    "category": "data",
+    "level": "junior",
+    "description": "Analyzes business data, builds dashboards, and communicates insights using SQL and BI tools.",
+    "required_skills": ["SQL", "Python", "Excel", "Tableau", "Power BI", "Statistics"]
+  },
+  {
+    "title": "DevOps Engineer",
+    "category": "engineering",
+    "level": "senior",
+    "description": "Automates CI/CD, infrastructure as code, and observability across cloud environments.",
+    "required_skills": ["Kubernetes", "Docker", "Terraform", "AWS", "CI/CD", "Prometheus", "Linux"]
+  },
+  {
+    "title": "Product Manager",
+    "category": "product",
+    "level": "mid",
+    "description": "Defines product vision, prioritizes roadmap, and coordinates engineering and design.",
+    "required_skills": ["Roadmapping", "User Research", "SQL", "Agile", "Data Analysis", "Communication"]
+  },
+  {
+    "title": "UI/UX Designer",
+    "category": "design",
+    "level": "mid",
+    "description": "Designs user-centered interfaces and prototypes; conducts usability testing.",
+    "required_skills": ["Figma", "User Research", "Prototyping", "Design Systems", "Wireframing"]
+  },
+  {
+    "title": "QA Engineer",
+    "category": "engineering",
+    "level": "mid",
+    "description": "Designs and executes manual/automated test plans to ensure product quality.",
+    "required_skills": ["Python", "Playwright", "Selenium", "Test Planning", "SQL", "CI"]
+  },
+  {
+    "title": "Technical Writer",
+    "category": "product",
+    "level": "junior",
+    "description": "Authors clear technical documentation, API references, and tutorials.",
+    "required_skills": ["Writing", "Markdown", "API Docs", "Information Architecture", "Git"]
+  },
+  {
+    "title": "Software Architect",
+    "category": "engineering",
+    "level": "senior",
+    "description": "Defines system architecture, technology choices, and cross-team technical standards.",
+    "required_skills": ["System Design", "Microservices", "Cloud", "Python", "Go", "Kafka"]
+  }
+]

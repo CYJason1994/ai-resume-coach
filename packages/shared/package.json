@@ -1,0 +1,6 @@
+{
+  "name": "shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "前端/后端共享类型（M1 由 OpenAPI 生成）"
+}

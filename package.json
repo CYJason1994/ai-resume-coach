@@ -1,0 +1,15 @@
+{
+  "name": "ai-resume-coach",
+  "private": true,
+  "version": "0.3.0",
+  "description": "生产级简历优化平台（Monorepo）",
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "build:web": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

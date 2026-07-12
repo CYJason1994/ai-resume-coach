@@ -1,0 +1,52 @@
+{
+  "Frontend Developer": {
+    "title_zh": "前端开发工程师",
+    "skills_zh": ["JavaScript", "TypeScript", "React", "HTML", "CSS", "Next.js", "Webpack"],
+    "description_zh": "使用 React/Next.js、TypeScript 与现代 CSS 构建响应式 Web 界面，与设计师及后端协作。"
+  },
+  "Backend Developer": {
+    "title_zh": "后端开发工程师",
+    "skills_zh": ["Python", "FastAPI", "PostgreSQL", "Redis", "Docker", "REST API", "SQL"],
+    "description_zh": "设计与实现服务端服务、REST/GraphQL API、数据库与异步任务流水线。"
+  },
+  "Full Stack Developer": {
+    "title_zh": "全栈开发工程师",
+    "skills_zh": ["JavaScript", "TypeScript", "React", "Python", "FastAPI", "PostgreSQL", "AWS"],
+    "description_zh": "端到端负责功能，覆盖 React 前端与 Python/FastAPI 后端及云端部署。"
+  },
+  "Data Engineer": {
+    "title_zh": "数据工程师",
+    "skills_zh": ["Python", "SQL", "Airflow", "Spark", "Docker", "Kafka", "ETL"],
+    "description_zh": "构建数据流水线、数据仓库与 ETL，使用 Python、SQL 与编排工具。"
+  },
+  "Machine Learning Engineer": {
+    "title_zh": "机器学习工程师",
+    "skills_zh": ["Python", "PyTorch", "TensorFlow", "MLOps", "Docker", "Kubernetes", "SQL"],
+    "description_zh": "训练、部署并监控生产环境 ML 模型，具备扎实 Python 与 MLOps 能力。"
+  },
+  "Data Analyst": {
+    "title_zh": "数据分析师",
+    "skills_zh": ["SQL", "Python", "Excel", "Tableau", "Power BI", "统计学"],
+    "description_zh": "分析业务数据、搭建仪表盘，并以 SQL 与 BI 工具传达洞察。"
+  },
+  "DevOps Engineer": {
+    "title_zh": " DevOps 工程师",
+    "skills_zh": ["Kubernetes", "Docker", "Terraform", "AWS", "CI/CD", "Prometheus", "Linux"],
+    "description_zh": "自动化 CI/CD、基础设施即代码，以及在云环境中落地可观测性。"
+  },
+  "Product Manager": {
+    "title_zh": "产品经理",
+    "skills_zh": ["路线图规划", "用户研究", "SQL", "敏捷", "数据分析", "沟通"],
+    "description_zh": "定义产品愿景、排定路线图优先级，并协调工程与设计团队。"
+  },
+  "UI/UX Designer": {
+    "title_zh": "UI/UX 设计师",
+    "skills_zh": ["Figma", "用户研究", "原型设计", "设计系统", "线框图"],
+    "description_zh": "以用户为中心设计界面与原型，并开展可用性测试。"
+  },
+  "QA Engineer": {
+    "title_zh": "测试工程师",
+    "skills_zh": ["Python", "Playwright", "Selenium", "测试规划", "SQL", "CI"],
+    "description_zh": "设计并执行手动/自动化测试计划，保障产品质量。"
+  }
+}
