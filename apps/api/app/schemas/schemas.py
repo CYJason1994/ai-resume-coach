@@ -82,3 +82,33 @@ class ResumeResultResponse(BaseModel):
     status: str
     structured: ResumeStructured | None = None
     matches: list[MatchItem] = []
+
+
+# ── 面试题目生成（M2，§7.5）──
+# 维度英文 key（与 interview_gen.DIMENSIONS 保持一致）
+INTERVIEW_DIMENSIONS = ["behavioral", "technical", "role", "stress"]
+
+
+class InterviewGenerateRequest(BaseModel):
+    resume_id: uuid.UUID
+    job_id: uuid.UUID
+
+
+class InterviewQuestionItem(BaseModel):
+    id: str
+    dimension: str
+    question: str
+    expected_focus: str | None = None
+    difficulty: str | None = None
+    order_index: int
+
+
+class InterviewListResponse(BaseModel):
+    task_id: str
+    resume_id: str
+    job_id: str
+    job_title: str
+    status: str
+    degraded: bool = False  # 是否走规则模板兜底（LLM 不可用）
+    error_text: str | None = None  # 失败原因 / 降级提示（status=done 时可能为降级备注）
+    questions: list[InterviewQuestionItem] = []

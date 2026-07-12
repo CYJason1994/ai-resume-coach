@@ -89,6 +89,23 @@ export const api = {
       headers: { "X-Access-Token": token },
     });
   },
+  async generateInterview(
+    resumeId: string,
+    jobId: string,
+    token: string
+  ): Promise<InterviewList> {
+    return request<InterviewList>("/api/interviews/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Access-Token": token },
+      body: JSON.stringify({ resume_id: resumeId, job_id: jobId }),
+    });
+  },
+  async getInterview(taskId: string, token: string): Promise<InterviewList> {
+    return request<InterviewList>(
+      `/api/interviews/${taskId}?token=${encodeURIComponent(token)}`,
+      { headers: { "X-Access-Token": token } }
+    );
+  },
 };
 
 // ── 结果与结构化类型（M1）──
@@ -120,4 +137,23 @@ export interface ResumeResult {
   status: string;
   structured: ResumeStructured | null;
   matches: MatchItem[];
+}
+
+// ── 面试题目生成（M2）──
+export interface InterviewQuestion {
+  id: string;
+  dimension: string;
+  question: string;
+  expected_focus: string | null;
+  difficulty: string | null;
+  order_index: number;
+}
+export interface InterviewList {
+  task_id: string;
+  resume_id: string;
+  job_id: string;
+  job_title: string;
+  status: string;
+  degraded: boolean;
+  questions: InterviewQuestion[];
 }

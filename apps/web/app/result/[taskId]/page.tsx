@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ApiError, api, getErrorMessage, ResumeResult, TaskStatus } from "@/lib/api";
 
 function SkillTags({ skills, tone }: { skills: string[]; tone: "ok" | "miss" }) {
@@ -26,11 +27,13 @@ function SkillTags({ skills, tone }: { skills: string[]; tone: "ok" | "miss" }) 
 
 export default function ResultPage({ params }: { params: { taskId: string } }) {
   const { taskId } = params;
+  const router = useRouter();
   const [token, setToken] = useState("");
   const [status, setStatus] = useState<TaskStatus | null>(null);
   const [result, setResult] = useState<ResumeResult | null>(null);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [generating, setGenerating] = useState<string | null>(null);
 
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get("token") || "";
@@ -68,6 +71,18 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
       active = false;
     };
   }, [taskId]);
+
+  const onGenerate = async (jobId: string) => {
+    if (!result || !token) return;
+    setGenerating(jobId);
+    try {
+      const resp = await api.generateInterview(result.resume_id, jobId, token);
+      router.push(`/interview/${resp.task_id}?token=${encodeURIComponent(token)}`);
+    } catch (e) {
+      setError(getErrorMessage(e));
+      setGenerating(null);
+    }
+  };
 
   const onDelete = async () => {
     if (!result || !token) return;
@@ -178,6 +193,13 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
                   <SkillTags skills={m.missing_skills} tone="miss" />
                 </div>
               </div>
+              <button
+                onClick={() => onGenerate(m.job_id)}
+                disabled={generating === m.job_id}
+                className="mt-4 rounded-lg bg-brand/15 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/25 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {generating === m.job_id ? "生成中…" : "生成针对性面试题 →"}
+              </button>
             </article>
           ))}
           {result.matches.length === 0 && (

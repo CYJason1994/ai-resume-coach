@@ -122,3 +122,20 @@ class JobMatch(Base):
     missing_skills: Mapped[list[str]] = mapped_column(JSONB, default=list)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class InterviewQuestion(Base):
+    """M2 面试题目（分维度）。题目按 (resume_id, job_id) 生成并持久化。"""
+
+    __tablename__ = "interview_questions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    resume_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("resumes.id"))
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id"))
+    job_title: Mapped[str] = mapped_column(String(255))  # 岗位标题快照（展示用）
+    dimension: Mapped[str] = mapped_column(String(32))  # behavioral|technical|role|stress
+    question: Mapped[str] = mapped_column(Text)
+    expected_focus: Mapped[str | None] = mapped_column(Text, nullable=True)  # 考察点
+    difficulty: Mapped[str | None] = mapped_column(String(16), nullable=True)  # junior|mid|senior
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

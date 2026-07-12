@@ -14,11 +14,12 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.models.models import JobMatch, Resume, ResumeParse, Task
+from app.models.models import InterviewQuestion, JobMatch, Job, Resume, ResumeParse, Task
 from app.services.compliance import purge_resume_personal_data
 from app.schemas.schemas import ResumeStructured
 from app.core.db import SessionLocal
 from app.services.extractor import extract_structured
+from app.services.interview_gen import generate_questions
 from app.services.matcher import match_resume
 from app.services.parser import ParseError, ParserFactory
 from app.services.storage import get_storage
@@ -44,6 +45,15 @@ async def enqueue_process_resume(resume_id: uuid.UUID) -> None:
 async def enqueue_seed_jobs() -> None:
     redis = await _redis_pool()
     await redis.enqueue_job("seed_jobs_task")
+
+
+async def enqueue_generate_interview(
+    task_id: uuid.UUID, resume_id: uuid.UUID, job_id: uuid.UUID
+) -> None:
+    redis = await _redis_pool()
+    await redis.enqueue_job(
+        "generate_interview_task", str(task_id), str(resume_id), str(job_id)
+    )
 
 
 async def process_resume_task(ctx: dict, resume_id: str) -> None:
@@ -125,6 +135,72 @@ async def process_resume_task(ctx: dict, resume_id: str) -> None:
         task.progress = 100
         await session.commit()
     logger.info("process_done", resume_id=resume_id)
+
+
+async def generate_interview_task(
+    ctx: dict, task_id: str, resume_id: str, job_id: str
+) -> None:
+    """M2：生成分维度面试题（加载解析 + 岗位 → interview_gen）。"""
+    logger.info("interview_start", task_id=task_id, resume_id=resume_id, job_id=job_id)
+    tid, rid, jid = uuid.UUID(task_id), uuid.UUID(resume_id), uuid.UUID(job_id)
+    async with SessionLocal() as session:
+        task = await session.get(Task, tid)
+        if not task:
+            logger.warning("interview_no_task", task_id=task_id)
+            return
+        resume = await session.get(Resume, rid)
+        if not resume or resume.deleted_at is not None:
+            task.status = "failed"
+            task.error_text = "简历记录缺失或已删除"
+            await session.commit()
+            return
+        job = await session.get(Job, jid)
+        if not job:
+            task.status = "failed"
+            task.error_text = "目标岗位不存在"
+            await session.commit()
+            return
+
+        # 最新解析
+        parse = (
+            await session.scalars(
+                select(ResumeParse)
+                .where(ResumeParse.resume_id == rid)
+                .order_by(ResumeParse.created_at.desc())
+            )
+        ).first()
+        if not parse or not parse.structured_data:
+            task.status = "failed"
+            task.error_text = "尚无可用的简历结构化结果，请先完成解析"
+            await session.commit()
+            return
+        try:
+            structured = ResumeStructured(**(parse.structured_data or {}))
+        except Exception as e:  # noqa: BLE001
+            task.status = "failed"
+            task.error_text = f"结构化数据异常: {e}"
+            await session.commit()
+            return
+
+        task.status = "running"
+        task.progress = 30
+        await session.commit()
+
+        try:
+            rows, degraded = await generate_questions(rid, structured, job, session)
+            task.progress = 100
+            task.status = "done"
+            # 降级时把"规则模板兜底"作为信息提示写入 error_text（status 仍为 done）
+            task.error_text = (
+                "AI 生成暂不可用，已使用规则模板兜底" if degraded else None
+            )
+            logger.info("interview_done", count=len(rows), degraded=degraded)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("interview_gen_failed", error=str(e))
+            task.status = "failed"
+            task.error_text = f"面试题生成失败: {e}"
+        await session.commit()
+    logger.info("interview_task_finished", task_id=task_id)
 
 
 async def seed_jobs_task(ctx: dict) -> None:

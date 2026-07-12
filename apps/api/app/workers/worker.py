@@ -12,7 +12,12 @@ from arq.cron import cron
 from arq.worker import Worker
 
 from app.core.config import get_settings
-from app.workers.tasks import cleanup_expired, process_resume_task, seed_jobs_task
+from app.workers.tasks import (
+    cleanup_expired,
+    generate_interview_task,
+    process_resume_task,
+    seed_jobs_task,
+)
 
 settings = get_settings()
 redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
@@ -27,7 +32,12 @@ async def on_startup(ctx) -> None:
 
 def build_worker() -> Worker:
     return Worker(
-        functions=[process_resume_task, seed_jobs_task, cleanup_expired],
+        functions=[
+            process_resume_task,
+            generate_interview_task,
+            seed_jobs_task,
+            cleanup_expired,
+        ],
         redis_settings=redis_settings,
         on_startup=on_startup,
         # 并发与重试（生产可调）
