@@ -71,7 +71,7 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
 
   const onDelete = async () => {
     if (!result || !token) return;
-    if (!confirm("确认删除这份简历？文件与结构化数据将被彻底移除。")) return;
+    if (!confirm("确认删除这份简历？文件与可访问的分析结果将被移除，服务器上的原始数据将按要求清除。")) return;
     setDeleting(true);
     try {
       await api.deleteResume(result.resume_id, token);

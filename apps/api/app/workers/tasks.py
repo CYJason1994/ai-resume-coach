@@ -15,6 +15,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models.models import JobMatch, Resume, ResumeParse, Task
+from app.services.compliance import purge_resume_personal_data
 from app.schemas.schemas import ResumeStructured
 from app.core.db import SessionLocal
 from app.services.extractor import extract_structured
@@ -157,6 +158,7 @@ async def cleanup_expired(ctx: dict) -> dict:
                 await get_storage().delete(r.storage_key, r.file_type)
             except Exception:  # noqa: BLE001
                 pass
+            await purge_resume_personal_data(session, r.id)
             r.deleted_at = now
             r.access_token_hash = ""  # 失效令牌
             count += 1

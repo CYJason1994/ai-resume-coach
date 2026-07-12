@@ -79,6 +79,6 @@ async def upload_resume(file: UploadFile = File(...)):
     return UploadResponse(
         task_id=task_id,
         access_token=access_token,
-        result_url=f"/r/{task_id}?token={access_token}",
+        result_url=f"/result/{task_id}?token={access_token}",
         status="uploaded",
     )

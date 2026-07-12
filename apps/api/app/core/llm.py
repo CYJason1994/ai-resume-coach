@@ -5,7 +5,8 @@
 - 全局并发信号量（LLM_CONCURRENCY=6）。
 - 降级状态机：连续 LLM_FAILURE_THRESHOLD 次失败 → 降级 + 冷却；冷却期节流探测恢复
   （M0.1 修正：原 try_recover 在每次调用入口即清零降级，冷却机制形同虚设）。
-- 成本护栏：单份熔断（LLM_COST_CAP_PER_RESUME）+ 日预算（M0 内存计数，M1 改 Redis）。
+- 成本护栏：单份熔断（LLM_COST_CAP_PER_RESUME）+ 日预算（M0/M1 进程内内存计数；
+  TODO(M2/M4): 迁 Redis 以支持多副本/多进程共享预算，否则多 worker 部署时护栏互不可见）。
 """
 from __future__ import annotations
 
@@ -91,6 +92,8 @@ class LlmProvider:
         )
         self._sem = asyncio.Semaphore(settings.LLM_CONCURRENCY)
         self.degradation = DegradationState(settings.LLM_FAILURE_THRESHOLD)
+        # TODO(M2/M4): 进程内内存计数，多副本部署下各进程预算互不可见；
+        # 应迁 Redis（incrbyfloat + TTL）实现共享日预算。
         self._daily_spend: dict[str, float] = {}
         self._spend_lock = asyncio.Lock()
 

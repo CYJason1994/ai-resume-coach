@@ -16,6 +16,7 @@ from app.core.errors import ForbiddenError, NotFoundError
 from app.core.logging import get_logger
 from app.core.security import verify_token
 from app.models.models import Resume
+from app.services.compliance import purge_resume_personal_data
 from app.services.storage import get_storage
 
 logger = get_logger("resumes")
@@ -34,6 +35,9 @@ async def delete_resume(
             await get_storage().delete(resume.storage_key, resume.file_type)
         except Exception as e:  # noqa: BLE001
             logger.warning("delete_file_failed", error=str(e))
+        # 级联擦除个人数据（PIPL 删除权）：解析行 + 匹配行
+        purge = await purge_resume_personal_data(session, resume_id)
+        logger.info("resume_purged", **purge)
         resume.deleted_at = datetime.now(timezone.utc)
         resume.access_token_hash = ""  # 失效令牌
         await session.commit()

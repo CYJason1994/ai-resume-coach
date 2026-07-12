@@ -41,6 +41,12 @@ _SKILL_HINTS = [
     "html", "css", "tailwind", "sass", "webpack", "数据可视化", "etl",
 ]
 
+# 预编译技能匹配（词边界，避免 "go" 命中 google/good/goal 等子串假阳性，P2-2）
+_SKILL_PATTERNS = [
+    (s, re.compile(r"(?<![a-z0-9])" + re.escape(s) + r"(?![a-z0-9])"))
+    for s in _SKILL_HINTS
+]
+
 
 def _truncate(text: str) -> str:
     return text[:LLM_MAX_INPUT_CHARS]
@@ -83,7 +89,7 @@ def _coerce(data: dict) -> dict:
 def _rule_based(text: str) -> ResumeStructured:
     """确定性兜底：技能命中词典 + 经验年限正则 + 首行作标题猜测。"""
     lowered = text.lower()
-    skills = sorted({s for s in _SKILL_HINTS if s in lowered})
+    skills = sorted({s for s, pat in _SKILL_PATTERNS if pat.search(lowered)})
     m = re.search(r"(\d{1,2})\s*\+?\s*(?:年|years?)", lowered)
     exp = int(m.group(1)) if m else None
     first_line = (text.splitlines()[0].strip() if text else None)

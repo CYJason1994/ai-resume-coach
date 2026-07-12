@@ -105,7 +105,9 @@ class Job(Base):
     required_skills_zh: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True, default=None)
     soc_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
     is_seed: Mapped[bool] = mapped_column(Boolean, default=True)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(settings.LLM_EMBED_DIM), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     DEEPSEEK_API_KEY: str = ""
     LLM_CHAT_MODEL: str = "deepseek-v4-flash"
     LLM_EMBED_MODEL: str = "deepseek-embedding"
+    LLM_EMBED_DIM: int = 1536  # 嵌入向量维度，须与 LLM_EMBED_MODEL 输出维度一致
     LLM_BASE_URL: str = "https://api.deepseek.com/v1"
     LLM_REQUEST_TIMEOUT: float = 60.0
     LLM_MAX_RETRIES: int = 3

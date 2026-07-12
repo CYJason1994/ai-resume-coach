@@ -76,12 +76,16 @@ class JobSourceProvider(ABC):
         async with SessionLocal() as session:
             for item in raw:
                 try:
-                    soc = item.get("soc_code")
-                    existing = None
-                    if soc:
-                        existing = await session.scalar(
-                            select(Job).where(Job.soc_code == soc).limit(1)
-                        )
+                    title = item["title"]
+                    source_code = self.effective_source_code
+                    # 幂等去重键：(source_code, title)
+                    # curated 样本普遍无 soc_code，用 (来源, 标题) 判重，
+                    # 避免重复 seed 时插入大量重复岗位（P2-1）。
+                    existing = await session.scalar(
+                        select(Job)
+                        .where(Job.source_code == source_code, Job.title == title)
+                        .limit(1)
+                    )
                     if existing:
                         skipped += 1
                         continue

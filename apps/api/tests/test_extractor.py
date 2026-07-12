@@ -41,3 +41,11 @@ async def test_extract_fallback_on_unavailable(monkeypatch):
     assert isinstance(out, ResumeStructured)
     assert "python" in out.skills
     assert out.experience_years == 3
+
+
+def test_rule_based_no_substring_false_positive():
+    """P2-2：词边界匹配，'go' 不应由 google/golang 子串命中。"""
+    out = extractor._rule_based("使用 google 与 golang 开发")
+    assert "golang" in out.skills
+    assert "go" not in out.skills  # 关键回归：修复前会被 google 子串误命中
+

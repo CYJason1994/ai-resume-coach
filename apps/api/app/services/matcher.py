@@ -1,8 +1,10 @@
-"""岗位匹配（§7 双引擎：向量粗排 + LLM 精排/理由）。
+"""岗位匹配（§7 双引擎：向量粗排 + LLM 精排/理由，无 Key 时纯规则兜底）。
 
 - 简历结构化文本 → embed → pgvector 余弦检索 top-N jobs（快）。
 - 对 top-N 用 LLM 给匹配分/缺口/理由（准，可解释）；
   LLM 不可用时回退纯规则匹配（命中技能占比）。
+- embed 不可用（无 Key / 网络失败 / 岗位库无向量）时，直接走纯规则匹配
+  对全部岗位打分取 top-K，保证无 DeepSeek Key 也能产出匹配。
 - 写入 JobMatch 行，返回供后续查询。
 """
 from __future__ import annotations
@@ -39,14 +41,21 @@ def _resume_embed_text(s: ResumeStructured) -> str:
 async def match_resume(
     resume_id: uuid.UUID, structured: ResumeStructured, session
 ) -> list[JobMatch]:
-    """返回写入后的 JobMatch 列表（已 flush，含生成的主键）。"""
+    """返回写入后的 JobMatch 列表（已 flush，含生成的主键）。
+
+    匹配策略（双引擎，失败隔离）：
+    - 嵌入可用 → 向量粗排 top-K → LLM 精排/理由（LLM 失败回退规则）。
+    - 嵌入不可用（无 Key / 网络失败 / 岗位库无向量）→ 纯规则匹配兜底，
+      对全部岗位按技能重叠度打分取 top-K。保证 MVP 在无 DeepSeek Key 时
+      仍能产出匹配（与 v0.3「整条链路不崩」承诺一致）。
+    """
     text = _resume_embed_text(structured)
-    # 1) 嵌入（失败则无法向量匹配，返回空，由调用方决定降级）
+    # 1) 嵌入（失败则降级为纯规则匹配，而非整段放弃）
     try:
         emb = (await get_llm().embed([text]))[0]
-    except (LlmUnavailableError, Exception) as e:  # noqa: BLE001
-        logger.warning("match_embed_failed", error=str(e), mode="skip")
-        return []
+    except Exception as e:  # noqa: BLE001
+        logger.warning("match_embed_unavailable", error=str(e), mode="rule_fallback")
+        return await _rule_match_all(resume_id, structured, session)
 
     # 2) 向量粗排
     stmt = (
@@ -57,17 +66,16 @@ async def match_resume(
     )
     top_jobs = list((await session.scalars(stmt)).all())
     if not top_jobs:
-        logger.info("match_no_jobs", hint="岗位库可能未摄入或均无嵌入")
-        return []
+        # 岗位库无嵌入向量（如 seed 时未配置 Key）→ 回退纯规则匹配
+        logger.info("match_no_embeddings", hint="岗位库无嵌入向量，回退纯规则匹配")
+        return await _rule_match_all(resume_id, structured, session)
 
     # 3) 精排 + 理由（LLM，失败回退规则）
     results: list[JobMatch] = []
     for job in top_jobs:
         try:
             score, matched, missing, rationale = await _score_one(structured, job)
-        except LlmUnavailableError:
-            score, matched, missing, rationale = _rule_score(structured, job)
-        except (json.JSONDecodeError, Exception) as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             logger.warning("match_score_fallback", job=job.title, error=str(e))
             score, matched, missing, rationale = _rule_score(structured, job)
         jm = JobMatch(
@@ -80,6 +88,39 @@ async def match_resume(
         )
         session.add(jm)
         results.append(jm)
+    await session.flush()
+    return results
+
+
+async def _rule_match_all(
+    resume_id: uuid.UUID, structured: ResumeStructured, session, top_k: int = TOP_K
+) -> list[JobMatch]:
+    """无嵌入时的纯规则匹配：对全部岗位按技能重叠度打分，取 top-K 写入。"""
+    jobs = list(
+        (await session.scalars(select(Job).where(Job.required_skills.isnot(None)))).all()
+    )
+    if not jobs:
+        logger.info("rule_match_no_jobs", hint="岗位库为空或不含技能要求")
+        return []
+    scored = [
+        (score, job, matched, missing, rationale)
+        for job in jobs
+        for (score, matched, missing, rationale) in [_rule_score(structured, job)]
+    ]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    results: list[JobMatch] = []
+    for score, job, matched, missing, rationale in scored[:top_k]:
+        results.append(
+            JobMatch(
+                resume_id=resume_id,
+                job_id=job.id,
+                score=score,
+                matched_skills=matched,
+                missing_skills=missing,
+                rationale=rationale,
+            )
+        )
+        session.add(results[-1])
     await session.flush()
     return results
 
