@@ -155,5 +155,6 @@ export interface InterviewList {
   job_title: string;
   status: string;
   degraded: boolean;
+  error_text: string | null;
   questions: InterviewQuestion[];
 }

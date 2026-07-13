@@ -64,6 +64,10 @@ class Task(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending")
     progress: Mapped[int] = mapped_column(Integer, default=0)
     error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # M2：是否走规则模板兜底（LLM 不可用时）；显式存储，避免依赖 error_text 子串推断
+    degraded: Mapped[bool] = mapped_column(Boolean, default=False)
+    # M2：扩展元数据（如面试任务的 job_id），JSONB 便于演进
+    payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
@@ -125,11 +129,16 @@ class JobMatch(Base):
 
 
 class InterviewQuestion(Base):
-    """M2 面试题目（分维度）。题目按 (resume_id, job_id) 生成并持久化。"""
+    """M2 面试题目（分维度）。题目按 (resume_id, job_id) 生成，并归属到单次生成任务。
+
+    查询隔离以 task_id 为准（修复 P1-A 跨岗位串味：同一简历对多岗位生成时，
+    GET 按 task_id 精确取回本次任务产生的题目，不再按 resume_id 整份混读）。
+    """
 
     __tablename__ = "interview_questions"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    task_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)  # 归属生成任务（隔离键）
     resume_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("resumes.id"))
     job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id"))
     job_title: Mapped[str] = mapped_column(String(255))  # 岗位标题快照（展示用）

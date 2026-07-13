@@ -187,9 +187,12 @@ async def generate_interview_task(
         await session.commit()
 
         try:
-            rows, degraded = await generate_questions(rid, structured, job, session)
+            rows, degraded = await generate_questions(
+                task_id=tid, resume_id=rid, structured=structured, job=job, session=session
+            )
             task.progress = 100
             task.status = "done"
+            task.degraded = degraded  # P2-D：显式记录降级，供 GET 直接读取
             # 降级时把"规则模板兜底"作为信息提示写入 error_text（status 仍为 done）
             task.error_text = (
                 "AI 生成暂不可用，已使用规则模板兜底" if degraded else None

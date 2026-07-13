@@ -2,9 +2,11 @@
 
 - 输入：简历结构化画像 + 目标岗位 → DeepSeek 生成分维度面试题。
 - 维度：behavioral（行为）/ technical（技术）/ role（岗位匹配）/ stress（压力）。
-- 上送遵循白名单（§7.3）：仅技能/经验/教育/摘要 + 岗位信息，**绝不**带上送 PII。
-- 降级：LLM 不可用时回退规则模板（基于岗位必备技能 + 简历技能），
+- 上送遵循白名单（§7.3）：仅技能/经验/教育/摘要 + 岗位信息，**绝不**带上送 PII
+  （work_history/projects 可能含公司名等 PII，已从 payload 剔除，P2-A）。
+- 降级：LLM 不可用时（含任何生成异常）回退规则模板（基于岗位必备技能 + 简历技能），
   保证 MVP 无 DeepSeek Key 也能演示（`generate_questions` 返回 degraded=True）。
+- 隔离：每道题目归属单次生成任务（task_id），查询按 task_id 精确取回（P1-A）。
 - 幂等：生成前清空该 (resume_id, job_id) 旧题，重生成不重复累积。
 """
 from __future__ import annotations
@@ -13,7 +15,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import LlmUnavailableError
@@ -41,13 +43,13 @@ def _now() -> datetime:
 
 def _build_messages(structured: ResumeStructured, job: Job) -> list[dict]:
     """构造白名单 payload：仅岗位相关 + 简历画像（已脱敏），剥离一切 PII。"""
+    # 白名单：仅上送脱敏画像字段（技能/经验/教育/摘要）。
+    # 注意：work_history/projects 可能包含公司名等 PII，按 §7.3 不得上送（P2-A 修复）。
     prof = {
         "skills": structured.skills or [],
         "experience_years": structured.experience_years,
         "education": structured.education or [],
         "summary": structured.summary,
-        "work_history": structured.work_history or [],
-        "projects": structured.projects or [],
     }
     job_info = {
         "title": job.title,
@@ -135,6 +137,7 @@ def _rule_questions(structured: ResumeStructured, job: Job) -> list[dict]:
 
 
 async def generate_questions(
+    task_id: uuid.UUID,
     resume_id: uuid.UUID,
     structured: ResumeStructured,
     job: Job,
@@ -142,7 +145,9 @@ async def generate_questions(
 ) -> tuple[list[InterviewQuestion], bool]:
     """生成并持久化面试题，返回 (题目行, 是否走规则兜底)。
 
-    生成前先清空该 (resume_id, job_id) 旧题，保证幂等可重生成。
+    - task_id：归属本次生成任务，供 GET 按任务精确隔离取回（P1-A）。
+    - 幂等：生成前清空该 (resume_id, job_id) 旧题，重生成不重复累积。
+    - 韧性：任何生成阶段异常均回退规则模板（P3-A），保证 MVP 无 LLM 也能出结果。
     """
     # 幂等：清旧
     await session.execute(
@@ -163,7 +168,7 @@ async def generate_questions(
         raw_items = _parse_llm_json(text)
         # 仅保留合法维度，过滤模型乱填
         raw_items = [it for it in raw_items if isinstance(it, dict) and it.get("dimension") in DIMENSIONS]
-    except (LlmUnavailableError, ValueError) as e:
+    except Exception as e:  # noqa: BLE001  P3-A：chat 失败/坏 JSON/任何异常均兜底
         logger.warning("interview_llm_failed", error=str(e), mode="rule_fallback")
         degraded = True
         raw_items = _rule_questions(structured, job)
@@ -176,6 +181,7 @@ async def generate_questions(
             continue
         rows.append(
             InterviewQuestion(
+                task_id=task_id,
                 resume_id=resume_id,
                 job_id=job.id,
                 job_title=job.title_zh or job.title,
@@ -192,3 +198,21 @@ async def generate_questions(
     await session.flush()
     logger.info("interview_generated", count=len(rows), degraded=degraded)
     return rows, degraded
+
+
+async def get_interview_by_task(
+    task_id: uuid.UUID, session: AsyncSession
+) -> list[InterviewQuestion]:
+    """按 task_id 精确取回本次生成任务产生的全部面试题（解决跨岗位串味 P1-A）。
+
+    题目按 order_index 排序，供 GET 路由直接返回。
+    """
+    return list(
+        (
+            await session.scalars(
+                select(InterviewQuestion)
+                .where(InterviewQuestion.task_id == task_id)
+                .order_by(InterviewQuestion.order_index)
+            )
+        ).all()
+    )

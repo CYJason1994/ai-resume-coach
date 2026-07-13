@@ -17,7 +17,8 @@ const DIFF_LABELS: Record<string, string> = {
 };
 const FAV_KEY = "arc_favorites";
 
-type Fav = { task_id: string; token: string; job_title: string; ts: number };
+// P2-E 修复：收藏仅存任务标识与岗位标题，不存访问令牌（避免 token 明文落 localStorage 被 XSS/共用设备重放）
+type Fav = { task_id: string; job_title: string; ts: number };
 
 function toMarkdown(d: InterviewList): string {
   const lines: string[] = [];
@@ -123,7 +124,7 @@ export default function InterviewPage({ params }: { params: { taskId: string } }
       setFavorited(true);
       return;
     }
-    favs.push({ task_id: data.task_id, token, job_title: data.job_title, ts: Date.now() });
+    favs.push({ task_id: data.task_id, job_title: data.job_title, ts: Date.now() });
     localStorage.setItem(FAV_KEY, JSON.stringify(favs));
     setFavorited(true);
   };

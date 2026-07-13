@@ -56,6 +56,22 @@ async def init_db() -> None:
                     "ON jobs USING hnsw (embedding vector_cosine_ops);"
                 )
             )
+            # M2 列兼容：已存在表也能平滑补列（dev 容错，生产仍应以 Alembic 为准）
+            await conn.execute(
+                text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS degraded BOOLEAN NOT NULL DEFAULT FALSE;")
+            )
+            await conn.execute(
+                text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS payload JSONB;")
+            )
+            await conn.execute(
+                text("ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS task_id UUID;")
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_interview_questions_task_id "
+                    "ON interview_questions(task_id);"
+                )
+            )
     except Exception as e:  # noqa: BLE001
         # 可观测：用结构化日志而非 print 静默吞掉；生产必须建表成功（fail-fast）
         logger.warning("init_db_skipped", error=str(e), env=settings.ENVIRONMENT)

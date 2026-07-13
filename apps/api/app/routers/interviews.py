@@ -17,6 +17,7 @@ from app.schemas.schemas import (
     InterviewListResponse,
     InterviewQuestionItem,
 )
+from app.services.interview_gen import get_interview_by_task
 from app.workers.tasks import enqueue_generate_interview
 
 logger = get_logger("interviews")
@@ -37,12 +38,40 @@ async def generate_interview(
         job = await session.get(Job, jid)
         if not job:
             raise NotFoundError("Job", str(jid))
-        # 创建任务并投递 ARQ（重活异步）
-        task = Task(resume_id=rid, type="interview", status="pending")
+        job_title = job.title_zh or job.title
+
+        # P3-B 幂等防护：同一 (resume, job) 已有进行中任务则直接复用，避免重复投递
+        existing = await session.scalar(
+            select(Task).where(
+                Task.resume_id == rid,
+                Task.type == "interview",
+                Task.status.in_(["pending", "running"]),
+                Task.payload["job_id"].astext == str(jid),
+            )
+        )
+        if existing:
+            logger.info("interview_dedup", task_id=str(existing.id), job_id=str(jid))
+            return InterviewListResponse(
+                task_id=str(existing.id),
+                resume_id=str(rid),
+                job_id=str(jid),
+                job_title=job_title,
+                status=existing.status,
+                degraded=existing.degraded,
+                error_text=existing.error_text,
+                questions=[],
+            )
+
+        # 创建任务并投递 ARQ（重活异步）；payload 记录 job_id 供幂等/审计
+        task = Task(
+            resume_id=rid,
+            type="interview",
+            status="pending",
+            payload={"job_id": str(jid)},
+        )
         session.add(task)
         await session.flush()
         task_id = task.id
-        job_title = job.title_zh or job.title
     await enqueue_generate_interview(task_id, rid, jid)
     logger.info("interview_enqueued", task_id=str(task_id), job_id=str(jid))
     return InterviewListResponse(
@@ -68,20 +97,11 @@ async def get_interview(
         if not resume or not verify_token(token, resume.access_token_hash):
             raise ForbiddenError("访问令牌无效或无权限查看该结果")
 
-        rows = list(
-            (
-                await session.execute(
-                    select(InterviewQuestion)
-                    .where(InterviewQuestion.resume_id == resume.id)
-                    .order_by(InterviewQuestion.order_index)
-                )
-            )
-            .scalars()
-            .all()
-        )
+        # P1-A 修复：按 task_id 精确隔离，绝不按 resume_id 整份混读
+        rows = await get_interview_by_task(task.id, session)
         job_title = rows[0].job_title if rows else ""
-        # 降级信息记录在 error_text（status 仍为 done）
-        degraded = bool(task.error_text and "规则模板" in (task.error_text or ""))
+        # P2-D 修复：直接读取显式 degraded 标记，不再依赖 error_text 子串推断
+        degraded = task.degraded
         return InterviewListResponse(
             task_id=str(task.id),
             resume_id=str(resume.id),
