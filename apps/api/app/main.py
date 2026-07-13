@@ -23,6 +23,7 @@ from app.core.errors import register_error_handlers
 from app.core.llm import get_llm
 from app.core.logging import bind_request_id, setup_logging
 from app.routers import (
+    auth,
     health,
     interview_sessions,
     interviews,
@@ -73,6 +74,7 @@ app.include_router(result.router, prefix="/api")
 app.include_router(resumes.router, prefix="/api")
 app.include_router(interviews.router)
 app.include_router(interview_sessions.router)
+app.include_router(auth.router, prefix="/api")
 
 
 # ── 上传限流（M1-6）：基于客户端 IP 的内存令牌桶；生产改用 Redis ──

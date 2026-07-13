@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_BYTES: int = 32
     ACCESS_TOKEN_HASH_ALGO: str = "sha256"
 
+    # ── 账号鉴权（M4 W1）──
+    AUTH_JWT_SECRET: str = ""  # 生产必须设置；空则使用不安全 dev 默认并告警
+    AUTH_JWT_TTL_SECONDS: int = 60 * 60 * 24 * 7  # 会话有效期 7 天
+    AUTH_COOKIE_NAME: str = "arc_session"
+    AUTH_COOKIE_SAMESITE: str = "lax"  # dev 同源用 lax；跨域部署改 none（配合 Secure）
+
     # ── 存储 ──
     STORAGE_PROVIDER: str = "local"  # local | minio | cos
     STORAGE_LOCAL_DIR: str = "data/uploads"

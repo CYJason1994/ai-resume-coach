@@ -160,3 +160,21 @@ class SessionOverall(BaseModel):
     top_strengths: list[str] = []
     top_gaps: list[str] = []
     suggestion: str | None = None
+
+
+# ── 账号鉴权（M4 W1）──
+class RegisterRequest(BaseModel):
+    email: str = Field(max_length=255, description="邮箱，作为登录名，小写归一化")
+    password: str = Field(min_length=8, max_length=128, description="至少 8 位")
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(max_length=255)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class UserView(BaseModel):
+    id: str
+    email: str
+    created_at: str
+    last_login_at: str | None = None

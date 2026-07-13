@@ -175,3 +175,22 @@ class InterviewSession(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
+
+
+class User(Base):
+    """M4 W1 注册用户（完整账号体系）。
+
+    - 与既有匿名流（resumes.user_id 可空）并存，不破坏 M0-M3 端点；
+    - password_hash 用 argon2id（见 app.core.auth）；
+    - 会话以 JWT 写入 httpOnly SameSite cookie（BFF/同源代理友好）。
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

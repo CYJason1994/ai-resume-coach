@@ -270,3 +270,45 @@ export interface SessionOverall {
   top_gaps: string[];
   suggestion: string | null;
 }
+
+// ── 账号鉴权（M4 W1）──
+// 会话以 httpOnly SameSite cookie 承载，前端不接触令牌；fetch 带 credentials 以透传。
+export interface UserView {
+  id: string;
+  email: string;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+async function authRequest<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new ApiError(res.status, err);
+  }
+  return res.json();
+}
+
+export function register(email: string, password: string): Promise<UserView> {
+  return authRequest<UserView>("/api/auth/register", { email, password });
+}
+
+export function login(email: string, password: string): Promise<UserView> {
+  return authRequest<UserView>("/api/auth/login", { email, password });
+}
+
+export async function logout(): Promise<void> {
+  await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+}
+
+export async function getMe(): Promise<UserView | null> {
+  const res = await fetch("/api/auth/me", { method: "GET", credentials: "include" });
+  if (res.status === 401) return null;
+  if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null));
+  return res.json();
+}
