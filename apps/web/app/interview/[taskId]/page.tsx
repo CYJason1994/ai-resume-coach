@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ApiError, api, getErrorMessage, InterviewList } from "@/lib/api";
 
 const DIM_LABELS: Record<string, string> = {
@@ -47,6 +48,7 @@ function toMarkdown(d: InterviewList): string {
 
 export default function InterviewPage({ params }: { params: { taskId: string } }) {
   const { taskId } = params;
+  const router = useRouter();
   const [token, setToken] = useState("");
   const [data, setData] = useState<InterviewList | null>(null);
   const [error, setError] = useState("");
@@ -129,6 +131,25 @@ export default function InterviewPage({ params }: { params: { taskId: string } }
     setFavorited(true);
   };
 
+  const onStartMock = async () => {
+    if (!data || !token) return;
+    try {
+      const s = await api.createSession(
+        {
+          resume_id: data.resume_id,
+          job_id: data.job_id,
+          interview_task_id: data.task_id,
+          dimension_focus: "mixed",
+          mode: "scripted",
+        },
+        token
+      );
+      router.push(`/mock-interview/${s.session_id}?token=${encodeURIComponent(token)}`);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  };
+
   if (error) {
     return (
       <div className="glass p-8 text-center">
@@ -159,6 +180,12 @@ export default function InterviewPage({ params }: { params: { taskId: string } }
           <p className="mt-1 text-sm opacity-70">目标岗位：{data.job_title}</p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={onStartMock}
+            className="magnetic-element rounded-lg bg-brand/20 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/30"
+          >
+            开始模拟面试 →
+          </button>
           <button
             onClick={onCopy}
             className="rounded-lg border border-brand/40 px-3 py-1.5 text-sm text-brand transition hover:bg-brand/10"

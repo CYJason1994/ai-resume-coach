@@ -22,7 +22,16 @@ from app.core.db import init_db
 from app.core.errors import register_error_handlers
 from app.core.llm import get_llm
 from app.core.logging import bind_request_id, setup_logging
-from app.routers import health, interviews, jobs, result, resumes, tasks, upload
+from app.routers import (
+    health,
+    interview_sessions,
+    interviews,
+    jobs,
+    result,
+    resumes,
+    tasks,
+    upload,
+)
 
 settings = get_settings()
 setup_logging()
@@ -63,6 +72,7 @@ app.include_router(jobs.router, prefix="/api")
 app.include_router(result.router, prefix="/api")
 app.include_router(resumes.router, prefix="/api")
 app.include_router(interviews.router)
+app.include_router(interview_sessions.router)
 
 
 # ── 上传限流（M1-6）：基于客户端 IP 的内存令牌桶；生产改用 Redis ──

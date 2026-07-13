@@ -10,11 +10,14 @@ from __future__ import annotations
 
 from sqlalchemy import delete
 
-from app.models.models import InterviewQuestion, JobMatch, ResumeParse
+from app.models.models import InterviewQuestion, InterviewSession, JobMatch, ResumeParse
 
 
 async def purge_resume_personal_data(session, resume_id) -> dict:
-    """硬删该简历下的解析行、匹配行与面试题，返回被删除行数（供审计日志）。"""
+    """硬删该简历下的解析行、匹配行、面试题与会话，返回被删除行数（供审计日志）。"""
+    del_is = await session.execute(
+        delete(InterviewSession).where(InterviewSession.resume_id == resume_id)
+    )
     del_iq = await session.execute(
         delete(InterviewQuestion).where(InterviewQuestion.resume_id == resume_id)
     )
@@ -25,6 +28,7 @@ async def purge_resume_personal_data(session, resume_id) -> dict:
         delete(ResumeParse).where(ResumeParse.resume_id == resume_id)
     )
     return {
+        "interview_sessions_deleted": del_is.rowcount,
         "interview_questions_deleted": del_iq.rowcount,
         "matches_deleted": del_matches.rowcount,
         "parses_deleted": del_parses.rowcount,

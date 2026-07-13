@@ -148,3 +148,30 @@ class InterviewQuestion(Base):
     difficulty: Mapped[str | None] = mapped_column(String(16), nullable=True)  # junior|mid|senior
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class InterviewSession(Base):
+    """M3 模拟面试官会话：流式对话的转录与评分持久化（token 门控，PIPL 可擦除）。
+
+    - transcript：对话转录（[{role, content, feedback?}]），feedback 归属用户本轮回答。
+    - summary_text：周期压缩摘要（上下文管理，防溢出）。
+    - overall_score：结束时整体评估（JSONB）。
+    - interview_task_id：可选关联 M2 面试题任务（作为访谈脚本种子）。
+    """
+
+    __tablename__ = "interview_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    resume_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("resumes.id"))
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id"))
+    interview_task_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    dimension_focus: Mapped[str] = mapped_column(String(32), default="mixed")
+    mode: Mapped[str] = mapped_column(String(32), default="freeform")
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | finished
+    transcript: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
+    summary_text: Mapped[str] = mapped_column(Text, default="")
+    overall_score: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )

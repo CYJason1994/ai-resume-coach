@@ -112,3 +112,50 @@ class InterviewListResponse(BaseModel):
     degraded: bool = False  # 是否走规则模板兜底（LLM 不可用）
     error_text: str | None = None  # 失败原因 / 降级提示（status=done 时可能为降级备注）
     questions: list[InterviewQuestionItem] = []
+
+
+# ── 模拟面试官（M3，§7.5）──
+class SessionCreateRequest(BaseModel):
+    resume_id: uuid.UUID
+    job_id: uuid.UUID
+    interview_task_id: uuid.UUID | None = None  # 可选：关联 M2 面试题任务（作为脚本种子）
+    dimension_focus: str | None = None  # behavioral|technical|role|stress|mixed
+    mode: str | None = None  # freeform | scripted
+
+
+class SessionMessageRequest(BaseModel):
+    message: str
+
+
+class FeedbackItem(BaseModel):
+    score: int
+    strengths: list[str] = []
+    improvements: list[str] = []
+    dimension: str = "mixed"
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+    feedback: FeedbackItem | None = None
+
+
+class SessionView(BaseModel):
+    session_id: str
+    resume_id: str
+    job_id: str
+    job_title: str
+    dimension_focus: str
+    status: str
+    transcript: list[ChatMessage] = []
+    overall_score: dict | None = None
+
+
+class SessionOverall(BaseModel):
+    session_id: str
+    status: str
+    overall_score: int | None = None
+    summary: str | None = None
+    top_strengths: list[str] = []
+    top_gaps: list[str] = []
+    suggestion: str | None = None

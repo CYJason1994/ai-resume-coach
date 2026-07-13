@@ -11,7 +11,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
+from collections.abc import AsyncIterator
 from datetime import date, datetime, timezone
 
 import httpx
@@ -146,6 +148,60 @@ class LlmProvider:
             except Exception as e:  # noqa: BLE001
                 self.degradation.note_failure()
                 logger.warning("llm_chat_failed", error=str(e))
+                raise LlmUnavailableError(str(e)) from e
+
+    async def stream_chat(
+        self,
+        messages: list[dict],
+        *,
+        temperature: float = 0.2,
+        response_format: dict | None = None,
+    ) -> AsyncIterator[str]:
+        """流式对话（SSE 友好）：逐片 yield 内容增量（DeepSeek `stream:true`）。
+
+        复用信号量(6) + 预算护栏 + 降级状态机；失败转 `LlmUnavailableError`
+        （降级语义与 `chat` 一致）。仅产出 `choices[0].delta.content` 文本增量。
+        """
+        await self._ensure_available()
+        payload: dict = {
+            "model": settings.LLM_CHAT_MODEL,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if response_format:
+            # 多数 provider 不支持 stream + json_object 同时开启；调用方应二选一
+            payload["response_format"] = response_format
+        async with self._sem:
+            try:
+                async with self._client.stream(
+                    "POST", "/chat/completions", json=payload
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data_str = line[len("data:"):].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield content  # type: ignore[misc]
+                        # 部分 provider 末片携带 usage，顺手记账
+                        if chunk.get("usage"):
+                            await self._track_cost(
+                                "chat", chunk["usage"].get("total_tokens", 0)
+                            )
+                self.degradation.note_success()
+            except Exception as e:  # noqa: BLE001
+                self.degradation.note_failure()
+                logger.warning("llm_stream_chat_failed", error=str(e))
                 raise LlmUnavailableError(str(e)) from e
 
     async def embed(self, texts: list[str]) -> list[list[float]]:

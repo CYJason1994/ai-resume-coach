@@ -84,6 +84,19 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
     }
   };
 
+  const onMockInterview = async (jobId: string) => {
+    if (!result || !token) return;
+    try {
+      const s = await api.createSession(
+        { resume_id: result.resume_id, job_id: jobId, dimension_focus: "mixed", mode: "freeform" },
+        token
+      );
+      router.push(`/mock-interview/${s.session_id}?token=${encodeURIComponent(token)}`);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  };
+
   const onDelete = async () => {
     if (!result || !token) return;
     if (!confirm("确认删除这份简历？文件与可访问的分析结果将被移除，服务器上的原始数据将按要求清除。")) return;
@@ -193,13 +206,21 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
                   <SkillTags skills={m.missing_skills} tone="miss" />
                 </div>
               </div>
-              <button
-                onClick={() => onGenerate(m.job_id)}
-                disabled={generating === m.job_id}
-                className="mt-4 rounded-lg bg-brand/15 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/25 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {generating === m.job_id ? "生成中…" : "生成针对性面试题 →"}
-              </button>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  onClick={() => onGenerate(m.job_id)}
+                  disabled={generating === m.job_id}
+                  className="rounded-lg bg-brand/15 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/25 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {generating === m.job_id ? "生成中…" : "生成针对性面试题 →"}
+                </button>
+                <button
+                  onClick={() => onMockInterview(m.job_id)}
+                  className="magnetic-element rounded-lg border border-brand/40 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/10"
+                >
+                  模拟面试 →
+                </button>
+              </div>
             </article>
           ))}
           {result.matches.length === 0 && (

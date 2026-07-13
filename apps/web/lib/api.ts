@@ -106,6 +106,73 @@ export const api = {
       { headers: { "X-Access-Token": token } }
     );
   },
+  // ── 模拟面试官（M3）──
+  async createSession(
+    req: {
+      resume_id: string;
+      job_id: string;
+      interview_task_id?: string;
+      dimension_focus?: string;
+      mode?: string;
+    },
+    token: string
+  ): Promise<InterviewSession> {
+    return request<InterviewSession>("/api/interview-sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Access-Token": token },
+      body: JSON.stringify(req),
+    });
+  },
+  async getSession(sessionId: string, token: string): Promise<InterviewSession> {
+    return request<InterviewSession>(
+      `/api/interview-sessions/${sessionId}?token=${encodeURIComponent(token)}`,
+      { headers: { "X-Access-Token": token } }
+    );
+  },
+  async finishSession(sessionId: string, token: string): Promise<SessionOverall> {
+    return request<SessionOverall>(`/api/interview-sessions/${sessionId}/finish`, {
+      method: "POST",
+      headers: { "X-Access-Token": token },
+    });
+  },
+  // SSE 流式发送消息；onEvent 逐事件回调（{type:'token'|'feedback'|'done'|'error', value}）
+  async sendSessionMessage(
+    sessionId: string,
+    token: string,
+    message: string,
+    onEvent: (ev: { type: string; value: any }) => void
+  ): Promise<void> {
+    const res = await fetch(`/api/interview-sessions/${sessionId}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Access-Token": token },
+      body: JSON.stringify({ message }),
+    });
+    if (!res.ok || !res.body) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status, body);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const line = frame.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        const payload = line.slice(5).trim();
+        try {
+          onEvent(JSON.parse(payload));
+        } catch {
+          /* 忽略无法解析的帧 */
+        }
+      }
+    }
+  },
 };
 
 // ── 结果与结构化类型（M1）──
@@ -157,4 +224,42 @@ export interface InterviewList {
   degraded: boolean;
   error_text: string | null;
   questions: InterviewQuestion[];
+}
+
+// ── 模拟面试官（M3）──
+export interface FeedbackItem {
+  score: number;
+  strengths: string[];
+  improvements: string[];
+  dimension: string;
+}
+export interface ChatMessage {
+  role: string;
+  content: string;
+  feedback: FeedbackItem | null;
+}
+export interface InterviewSession {
+  session_id: string;
+  resume_id: string;
+  job_id: string;
+  job_title: string;
+  dimension_focus: string;
+  status: string;
+  transcript: ChatMessage[];
+  overall_score: {
+    overall_score: number;
+    summary: string;
+    top_strengths: string[];
+    top_gaps: string[];
+    suggestion: string;
+  } | null;
+}
+export interface SessionOverall {
+  session_id: string;
+  status: string;
+  overall_score: number | null;
+  summary: string | null;
+  top_strengths: string[];
+  top_gaps: string[];
+  suggestion: string | null;
 }
