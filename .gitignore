@@ -6,10 +6,15 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
-.deps/            # 沙箱/本地 pip --target 安装目录（非项目依赖）
+# 沙箱/本地 pip --target 安装目录（非项目依赖）
+.deps/
 *.egg-info/
 dist/
 build/
+
+# ── Build outputs (generated) ──
+.next/
+next-env.d.ts
 
 # ── Env & secrets ──
 .env
