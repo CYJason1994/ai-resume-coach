@@ -256,3 +256,35 @@ async def test_stream_chat_yields_deltas():
     provider._client = _FakeStreamClient(lines)
     chunks = [c async for c in provider.stream_chat([{"role": "user", "content": "hi"}])]
     assert chunks == ["你", "好"]
+
+
+# ── P1-1：流式成本记账（stream_options.include_usage）──
+class _CaptureStreamClient:
+    def __init__(self, lines):
+        self._lines = lines
+        self.payload = None
+
+    def stream(self, method, url, json=None):
+        self.payload = json
+        return _FakeStreamResp(self._lines)
+
+
+_LINES_WITH_USAGE = [
+    'data: {"choices":[{"delta":{"content":"你"}}]}',
+    'data: {"choices":[{"delta":{"content":"好"}}]}',
+    'data: {"choices":[],"usage":{"total_tokens":123}}',  # 开启 include_usage 后的末片
+    "data: [DONE]",
+]
+
+
+async def test_stream_chat_tracks_usage_with_stream_options():
+    provider = get_llm()
+    client = _CaptureStreamClient(_LINES_WITH_USAGE)
+    provider._client = client
+    spend_before = provider.daily_spend
+    chunks = [c async for c in provider.stream_chat([{"role": "user", "content": "hi"}])]
+    assert chunks == ["你", "好"]
+    # P1-1 修复：payload 含 stream_options.include_usage
+    assert client.payload["stream_options"] == {"include_usage": True}
+    # 末片 usage 被记账 → 日预算护栏对 M3 流式生效（此前永不记账）
+    assert provider.daily_spend > spend_before

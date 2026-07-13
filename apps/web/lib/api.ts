@@ -154,6 +154,7 @@ export const api = {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
+    let terminated = false; // 是否收到终态事件（done/error）
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -166,11 +167,17 @@ export const api = {
         if (!line) continue;
         const payload = line.slice(5).trim();
         try {
-          onEvent(JSON.parse(payload));
+          const ev = JSON.parse(payload);
+          if (ev.type === "done" || ev.type === "error") terminated = true;
+          onEvent(ev);
         } catch {
           /* 忽略无法解析的帧 */
         }
       }
+    }
+    // 流结束却无终态事件（后端半开流断裂，P1-2）→ 主动抛出，交由 onSend 兜底
+    if (!terminated) {
+      throw new ApiError(503, { detail: "AI 面试官连接中断，请重试本轮。" });
     }
   },
 };

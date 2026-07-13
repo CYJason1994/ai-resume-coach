@@ -127,6 +127,18 @@ async def finish_session(
         resume = await session.get(Resume, sess.resume_id)
         if not resume or not verify_token(token, resume.access_token_hash):
             raise ForbiddenError("访问令牌无效或无权限查看该会话")
+        # P2-4 幂等：已结束且已有整体评估时直接返回，避免重复 LLM 调用（双倍成本/分数漂移）
+        if sess.status == "finished" and sess.overall_score:
+            o = sess.overall_score
+            return SessionOverall(
+                session_id=str(sess.id),
+                status=sess.status,
+                overall_score=o.get("overall_score"),
+                summary=o.get("summary"),
+                top_strengths=o.get("top_strengths", []),
+                top_gaps=o.get("top_gaps", []),
+                suggestion=o.get("suggestion"),
+            )
         overall = await overall_evaluate(session, sess)
         return SessionOverall(
             session_id=str(sess.id),

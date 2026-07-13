@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
@@ -21,13 +22,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import LlmUnavailableError
 from app.core.llm import get_llm
 from app.core.logging import get_logger
-from app.models.models import InterviewQuestion, InterviewSession, Job, Resume, ResumeParse
+from app.models.models import InterviewQuestion, InterviewSession, Job, ResumeParse
 
 logger = get_logger("interview_coach")
 
 # ── 上下文管理参数（§7.5：滚动窗口 / 周期摘要 防超上下文）──
 MAX_WINDOW_TURNS = 8       # 滚动窗口保留最近 N 条消息
 SUMMARY_EVERY = 6          # 每累计 N 条消息后重新压缩摘要
+MAX_TURNS = 30             # 单会话总轮次上限（防无限轮次刷成本/上下文，P2-3）
+_SESSION_LOCKS: dict[str, asyncio.Lock] = {}  # 单会话串行锁（按 session id），防并发双发 lost update
 DIMENSION_LABELS = {
     "behavioral": "行为面试",
     "technical": "技术面试",
@@ -125,6 +128,7 @@ async def _load_script(db: AsyncSession, sess: InterviewSession) -> list[str]:
     res = await db.execute(
         select(InterviewQuestion)
         .where(InterviewQuestion.task_id == sess.interview_task_id)
+        .where(InterviewQuestion.resume_id == sess.resume_id)  # P3-2：防止跨简历引用他人题库
         .order_by(InterviewQuestion.order_index)
     )
     return [r.question for r in res.scalars().all()]
@@ -185,47 +189,65 @@ async def stream_session_reply(
     - `token`：回复文本增量（前端追加到当前助手消息）
     - `feedback`：该轮评分 `{score,strengths,improvements,dimension}`（归属用户本轮回答）
     - `done`：本轮结束
-    - `error`：降级/异常（无 Key、冷却中），不写入助手消息
+    - `error`：降级/异常（无 Key、冷却中、内部错误），不写入助手消息
 
-    异常（LlmUnavailableError）被转换为 `error` 事件，保证前端不白屏。
+    任何异常（含非 LlmUnavailableError，如 DB 提交失败）都被转换为 `error` 事件并 return，
+    保证流总有终态（全局 Exception 处理器对半开 SSE 流无效，P1-2）。
+    单会话串行化（per-session 锁），防止并发双发导致 transcript 丢失更新。
     """
     transcript = list(sess.transcript or [])
-    transcript.append({"role": "user", "content": user_message, "feedback": None})
-
-    resume = await db.get(Resume, sess.resume_id)
-    job = await db.get(Job, sess.job_id)
-    parse = await _latest_parse(db, sess.resume_id)
-    resume_summary = _resume_summary_text(parse)
-    script_questions = await _load_script(db, sess)
-
-    # transcript 含本轮用户消息，确保模型可见；仅在成功轮末才写回 sess.transcript
-    messages = build_context(sess, job, transcript, resume_summary, script_questions)
-    llm = get_llm()
-
-    try:
-        reply_parts: list[str] = []
-        async for chunk in llm.stream_chat(messages):
-            reply_parts.append(chunk)
-            yield _sse({"type": "token", "value": chunk})
-    except LlmUnavailableError as e:
-        logger.warning("interview_stream_degraded", session_id=str(sess.id), error=str(e))
-        yield _sse({"type": "error", "value": "AI 面试官暂不可用，请稍后再试。"})
+    # 单会话轮次上限，防无限轮次刷成本/上下文（P2-3）
+    if len(transcript) >= MAX_TURNS:
+        yield _sse({"type": "error", "value": "已达本轮模拟面试的轮次上限，请结束并查看评估。"})
         return
 
-    reply = "".join(reply_parts)
-    feedback = await _score_answer(llm, user_message, reply)
+    lock = _SESSION_LOCKS.setdefault(str(sess.id), asyncio.Lock())
+    async with lock:
+        transcript.append({"role": "user", "content": user_message, "feedback": None})
 
-    # 评分归属用户本轮回答；追加助手回复
-    transcript[-1]["feedback"] = feedback
-    transcript.append({"role": "assistant", "content": reply})
-    sess.transcript = transcript
+        job = await db.get(Job, sess.job_id)
+        if not job:
+            yield _sse({"type": "error", "value": "关联的岗位不存在，无法继续面试。"})
+            return
+        parse = await _latest_parse(db, sess.resume_id)
+        resume_summary = _resume_summary_text(parse)
+        script_questions = await _load_script(db, sess)
 
-    # 周期摘要（上下文压缩）
-    if len(transcript) >= SUMMARY_EVERY:
-        sess.summary_text = await _summarize(llm, transcript)
+        # transcript 含本轮用户消息，确保模型可见；仅在成功轮末才写回 sess.transcript
+        messages = build_context(sess, job, transcript, resume_summary, script_questions)
+        llm = get_llm()
 
-    sess.updated_at = _now()
-    await db.commit()
+        reply_parts: list[str] = []
+        try:
+            async for chunk in llm.stream_chat(messages):
+                reply_parts.append(chunk)
+                yield _sse({"type": "token", "value": chunk})
+        except LlmUnavailableError as e:
+            logger.warning("interview_stream_degraded", session_id=str(sess.id), error=str(e))
+            yield _sse({"type": "error", "value": "AI 面试官暂不可用，请稍后再试。"})
+            return
+
+        reply = "".join(reply_parts)
+        feedback = await _score_answer(llm, user_message, reply)
+
+        # 评分归属用户本轮回答；追加助手回复
+        transcript[-1]["feedback"] = feedback
+        transcript.append({"role": "assistant", "content": reply})
+        sess.transcript = transcript
+
+        # 周期摘要（上下文压缩）
+        if len(transcript) >= SUMMARY_EVERY:
+            sess.summary_text = await _summarize(llm, transcript)
+
+        sess.updated_at = _now()
+        try:
+            await db.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.error("interview_session_commit_failed", session_id=str(sess.id), error=str(e))
+            yield _sse({"type": "error", "value": "保存失败，请重试本轮。"})
+            return
+
+    # 锁外 yield 终态事件，避免持锁期间阻塞流
     yield _sse({"type": "feedback", "value": feedback})
     yield _sse({"type": "done"})
 
@@ -233,6 +255,20 @@ async def stream_session_reply(
 async def overall_evaluate(db: AsyncSession, sess: InterviewSession) -> dict:
     """结束时整体评估：整体分 / 综述 / 亮点 / 短板 / 建议。失败返回空评估（不阻断）。"""
     transcript = sess.transcript or []
+    # 内容过短不调 LLM，直接返回友好空评估（P3-3，省成本）
+    if len(transcript) < 2:
+        overall = {
+            "overall_score": 0,
+            "summary": "面试内容过短，暂无法给出有效评估。",
+            "top_strengths": [],
+            "top_gaps": [],
+            "suggestion": "先完成几轮问答后再结束评估。",
+        }
+        sess.overall_score = overall
+        sess.status = "finished"
+        sess.updated_at = _now()
+        await db.commit()
+        return overall
     convo = "\n".join(f"{m['role']}: {m['content']}" for m in transcript)
     llm = get_llm()
     prompt = [

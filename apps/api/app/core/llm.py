@@ -163,14 +163,17 @@ class LlmProvider:
         （降级语义与 `chat` 一致）。仅产出 `choices[0].delta.content` 文本增量。
         """
         await self._ensure_available()
+        # DeepSeek（OpenAI 兼容）默认流式不回传 usage；显式开启才能在末片记账，
+        # 否则 M3 流式面试的成本不计入日预算护栏（P1-1）。
         payload: dict = {
             "model": settings.LLM_CHAT_MODEL,
             "messages": messages,
             "temperature": temperature,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
-        if response_format:
-            # 多数 provider 不支持 stream + json_object 同时开启；调用方应二选一
+        # 流式与 json_object 绝大多数 provider 互斥；响应格式仅在非流式时附加（P3-5）
+        if response_format and not payload.get("stream"):
             payload["response_format"] = response_format
         async with self._sem:
             try:
@@ -189,11 +192,14 @@ class LlmProvider:
                             chunk = json.loads(data_str)
                         except json.JSONDecodeError:
                             continue
-                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        # 末片 usage-only 时 choices 为空列表，需容错（P1-1 修复相关）
+                        choices = chunk.get("choices") or [{}]
+                        first = choices[0] if choices else {}
+                        delta = first.get("delta", {})
                         content = delta.get("content")
                         if content:
                             yield content  # type: ignore[misc]
-                        # 部分 provider 末片携带 usage，顺手记账
+                        # 末片携带 usage，顺手记账（开启 include_usage 后生效）
                         if chunk.get("usage"):
                             await self._track_cost(
                                 "chat", chunk["usage"].get("total_tokens", 0)

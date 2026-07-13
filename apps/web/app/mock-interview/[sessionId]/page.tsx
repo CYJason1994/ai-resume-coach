@@ -108,6 +108,13 @@ export default function MockInterviewPage({
     const asstIdx = messages.length + 1;
     setInput("");
     setStreaming(true);
+    // 流异常/出错时清理悬挂的空助手气泡（P2-6）
+    const cleanupEmptyAssistant = () =>
+      setMessages((m) => {
+        const last = m[m.length - 1];
+        if (last && last.role === "assistant" && !last.content) return m.slice(0, -1);
+        return m;
+      });
     try {
       await api.sendSessionMessage(sessionId, token, text, (ev) => {
         if (ev.type === "token") {
@@ -124,10 +131,12 @@ export default function MockInterviewPage({
           });
         } else if (ev.type === "error") {
           setError(ev.value || "AI 面试官暂不可用，请稍后再试。");
+          cleanupEmptyAssistant();
         }
       });
     } catch (e) {
-      setError(e instanceof ApiError ? getErrorMessage(e) : "发送失败");
+      setError(e instanceof ApiError ? getErrorMessage(e) : (e as Error)?.message || "发送失败");
+      cleanupEmptyAssistant();
     } finally {
       setStreaming(false);
     }
@@ -295,6 +304,7 @@ export default function MockInterviewPage({
               }
             }}
             rows={2}
+            maxLength={4000}
             placeholder="输入你的回答…（Enter 发送，Shift+Enter 换行）"
             className="flex-1 resize-none rounded-xl border border-white/10 bg-white/5 p-3 text-sm outline-none transition focus:border-brand/50"
           />

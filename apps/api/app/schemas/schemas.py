@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -119,12 +120,12 @@ class SessionCreateRequest(BaseModel):
     resume_id: uuid.UUID
     job_id: uuid.UUID
     interview_task_id: uuid.UUID | None = None  # 可选：关联 M2 面试题任务（作为脚本种子）
-    dimension_focus: str | None = None  # behavioral|technical|role|stress|mixed
-    mode: str | None = None  # freeform | scripted
+    dimension_focus: Literal["behavioral", "technical", "role", "stress", "mixed"] | None = None
+    mode: Literal["freeform", "scripted"] | None = None
 
 
 class SessionMessageRequest(BaseModel):
-    message: str
+    message: str = Field(max_length=4000, description="用户本轮回答，最长 4000 字符")
 
 
 class FeedbackItem(BaseModel):
