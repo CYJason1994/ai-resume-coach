@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 import json
-import os
+import pathlib
 
 import pytest
 
 from app.services.extractor import _rule_based
 
-_GOLDEN = os.path.join("data", "eval", "golden.json")
+# 用测试文件位置解析，消除 cwd 依赖（之前用 cwd 相对路径 data/eval/golden.json，
+# 仅当 pytest 在 apps/api/ 下运行才通过；现改为相对本文件，任意 cwd 均可）。
+_GOLDEN = pathlib.Path(__file__).resolve().parent.parent / "data" / "eval" / "golden.json"
 
 
 @pytest.fixture(scope="module")
