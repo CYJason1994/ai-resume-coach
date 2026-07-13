@@ -21,7 +21,8 @@ from app.core.config import get_settings
 from app.core.db import init_db
 from app.core.errors import register_error_handlers
 from app.core.llm import get_llm
-from app.core.logging import bind_request_id, setup_logging
+from app.core.logging import bind_request_id, get_logger, setup_logging
+from app.core.quota import get_quota_enforcer, quota_subject
 from app.routers import (
     auth,
     health,
@@ -63,6 +64,31 @@ async def request_context(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Request-ID"] = rid
     return response
+
+
+# ── 配额限流（M4 W2）：per-subject 固定窗口，叠加于 per-IP + LLM 信号量(6) ──
+@app.middleware("http")
+async def quota_middleware(request: Request, call_next):
+    if request.url.path.startswith("/api"):
+        token = request.headers.get("X-Access-Token") or request.cookies.get(
+            settings.AUTH_COOKIE_NAME
+        )
+        subject = quota_subject(token, request.client.host if request.client else None)
+        try:
+            allowed = await get_quota_enforcer().allow(subject)
+        except Exception:  # noqa: BLE001 — 兜底放行
+            allowed = True
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "title": "QUOTA_EXCEEDED",
+                    "status": 429,
+                    "detail": "请求过于频繁，请稍后再试",
+                    "request_id": getattr(request.state, "request_id", None),
+                },
+            )
+    return await call_next(request)
 
 
 register_error_handlers(app)

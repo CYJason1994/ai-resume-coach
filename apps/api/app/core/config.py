@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     AUTH_COOKIE_NAME: str = "arc_session"
     AUTH_COOKIE_SAMESITE: str = "lax"  # dev 同源用 lax；跨域部署改 none（配合 Secure）
 
+    # ── 配额限流（M4 W2，叠加于 per-IP + LLM 信号量(6)）──
+    QUOTA_LIMIT: int = 60  # 每个时间窗口内允许的最大请求数
+    QUOTA_WINDOW_SECONDS: int = 60  # 固定窗口长度（秒）
+
     # ── 存储 ──
     STORAGE_PROVIDER: str = "local"  # local | minio | cos
     STORAGE_LOCAL_DIR: str = "data/uploads"
