@@ -22,7 +22,9 @@ from app.core.db import init_db
 from app.core.errors import register_error_handlers
 from app.core.llm import get_llm
 from app.core.logging import bind_request_id, get_logger, setup_logging
+from app.core.observability import observability_middleware, setup_observability
 from app.core.quota import get_quota_enforcer, quota_subject
+from app.core.security_headers import security_headers_middleware
 from app.routers import (
     auth,
     health,
@@ -37,6 +39,7 @@ from app.routers import (
 
 settings = get_settings()
 setup_logging()
+setup_observability(settings)  # M4 W3：Sentry/OTel 初始化；无 DSN/OTLP 时完全静默、不联网
 
 
 @asynccontextmanager
@@ -56,6 +59,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── 安全响应头（M4 W4）：CSP/Report-Only、nosniff、HSTS 等 ──
+app.middleware("http")(security_headers_middleware)
+
 
 @app.middleware("http")
 async def request_context(request: Request, call_next):
@@ -64,6 +70,12 @@ async def request_context(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Request-ID"] = rid
     return response
+
+
+# ── 可观测性（M4 W3）：trace/metrics + 业务事件埋点；不消费/缓冲 SSE body ──
+@app.middleware("http")
+async def observe(request: Request, call_next):
+    return await observability_middleware(request, call_next)
 
 
 # ── 配额限流（M4 W2）：per-subject 固定窗口，叠加于 per-IP + LLM 信号量(6) ──
