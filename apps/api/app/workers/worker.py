@@ -24,10 +24,12 @@ redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
 
 
 async def on_startup(ctx) -> None:
-    """worker 进程不跑 FastAPI lifespan，此处确保建表（含 pgvector 扩展）。"""
+    """worker 进程不跑 FastAPI lifespan，此处确保建表（含 pgvector 扩展）并接入可观测性。"""
     from app.core.db import init_db
+    from app.core.observability import setup_observability
 
     await init_db()
+    setup_observability(settings)  # M4 W3：worker 也接入 Sentry/OTel（错误上报/span 不漏）
 
 
 def build_worker() -> Worker:

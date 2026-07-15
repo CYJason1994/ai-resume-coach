@@ -62,6 +62,8 @@ export default function MockInterviewPage({
   const [finished, setFinished] = useState(false);
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 记录上一条消息数量，区分「新增消息」（平滑滚动）与「流式内容增量」（即时滚动），避免逐 token smooth 造成卡顿
+  const prevLenRef = useRef(0);
 
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get("token") || "";
@@ -94,7 +96,12 @@ export default function MockInterviewPage({
   }, [sessionId]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    const el = scrollRef.current;
+    if (!el) return;
+    const grew = messages.length > prevLenRef.current;
+    prevLenRef.current = messages.length;
+    // 仅用 transform/scroll 驱动，避免触发 layout/paint 重排；平滑仅用于新消息
+    el.scrollTo({ top: el.scrollHeight, behavior: grew ? "smooth" : "auto" });
   }, [messages]);
 
   const onSend = async () => {
@@ -176,9 +183,9 @@ export default function MockInterviewPage({
 
   if (error && !session) {
     return (
-      <div className="glass p-8 text-center">
+      <div className="glass p-8 text-center" role="alert" aria-live="assertive">
         <p className="text-rose-400">{error}</p>
-        <a href="/" className="mt-4 inline-block text-sm text-brand underline">
+        <a href="/" className="mt-4 inline-block text-sm text-brand underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
           返回首页
         </a>
       </div>
@@ -187,7 +194,7 @@ export default function MockInterviewPage({
 
   if (!session) {
     return (
-      <div className="glass p-8 text-center">
+      <div className="glass p-8 text-center" role="status" aria-live="polite">
         <p className="text-lg font-medium">正在进入模拟面试…</p>
       </div>
     );
@@ -208,7 +215,7 @@ export default function MockInterviewPage({
           {!finished && (
             <button
               onClick={onFinish}
-              className="rounded-lg border border-amber-500/40 px-3 py-1.5 text-sm text-amber-300 transition hover:bg-amber-500/10"
+              className="rounded-lg border border-amber-500/40 px-3 py-1.5 text-sm text-amber-300 transition hover:bg-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
             >
               结束并评估
             </button>
@@ -217,13 +224,13 @@ export default function MockInterviewPage({
             <>
               <button
                 onClick={onCopy}
-                className="rounded-lg border border-brand/40 px-3 py-1.5 text-sm text-brand transition hover:bg-brand/10"
+                className="rounded-lg border border-brand/40 px-3 py-1.5 text-sm text-brand transition hover:bg-brand/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               >
                 {copied ? "已复制 ✓" : "复制报告"}
               </button>
               <button
                 onClick={onDownload}
-                className="rounded-lg border border-brand/40 px-3 py-1.5 text-sm text-brand transition hover:bg-brand/10"
+                className="rounded-lg border border-brand/40 px-3 py-1.5 text-sm text-brand transition hover:bg-brand/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               >
                 下载 .md
               </button>
@@ -233,11 +240,20 @@ export default function MockInterviewPage({
       </section>
 
       {error && (
-        <div className="glass border-rose-500/30 p-3 text-sm text-rose-300">{error}</div>
+        <div className="glass border-rose-500/30 p-3 text-sm text-rose-300" role="alert" aria-live="assertive">
+          {error}
+        </div>
       )}
 
       {/* 对话区 */}
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto pr-1">
+      <div
+        ref={scrollRef}
+        className="flex-1 space-y-4 overflow-y-auto pr-1"
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-label="面试对话记录"
+      >
         {messages.length === 0 && (
           <p className="glass p-5 text-sm opacity-60">
             面试即将开始。介绍一下自己，或回答面试官的第一个问题吧。
@@ -294,7 +310,11 @@ export default function MockInterviewPage({
       {/* 输入区 */}
       {!finished ? (
         <div className="flex gap-2">
+          <label htmlFor="answer-input" className="sr-only">
+            你的回答
+          </label>
           <textarea
+            id="answer-input"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -305,13 +325,16 @@ export default function MockInterviewPage({
             }}
             rows={2}
             maxLength={4000}
+            aria-disabled={streaming || !input.trim()}
             placeholder="输入你的回答…（Enter 发送，Shift+Enter 换行）"
-            className="flex-1 resize-none rounded-xl border border-white/10 bg-white/5 p-3 text-sm outline-none transition focus:border-brand/50"
+            className="flex-1 resize-none rounded-xl border border-white/10 bg-white/5 p-3 text-sm outline-none transition focus:border-brand/50 focus-visible:ring-2 focus-visible:ring-brand"
           />
           <button
+            type="button"
             onClick={onSend}
             disabled={streaming || !input.trim()}
-            className="magnetic-element self-end rounded-xl bg-brand/20 px-5 py-3 text-sm font-medium text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-disabled={streaming || !input.trim()}
+            className="magnetic-element self-end rounded-xl bg-brand/20 px-5 py-3 text-sm font-medium text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >
             {streaming ? "回答中…" : "发送"}
           </button>
@@ -337,7 +360,7 @@ export default function MockInterviewPage({
       )}
 
       <div className="pt-1 text-center">
-        <a href="/" className="text-sm text-brand underline">
+        <a href="/" className="text-sm text-brand underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
           返回首页
         </a>
       </div>

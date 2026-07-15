@@ -1,0 +1,230 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# M4 W6 生产编排（Production Orchestration）
+#
+# 说明：
+#   - 本文件定义「生产环境」的服务编排，与开发用的 docker-compose.dev.yml 分离。
+#   - 所有敏感配置从项目根目录的 .env 读取（env_file: .env）。.env 不入库（见 .gitignore）。
+#   - 镜像 tag 全部变量化（如 ${API_IMAGE_TAG:-latest}），便于按 tag / digest 回滚。
+#   - 每个常驻服务均配置 restart: unless-stopped + healthcheck。
+#   - 可选服务（minio 等）置于 profile: ["optional"]，默认不启动，需显式 --profile 启用。
+#
+# 校验（无需真正起容器）：
+#   docker compose -f compose.prod.yml config
+#
+# 启动：
+#   docker compose -f compose.prod.yml --env-file .env up -d
+# 仅启用可选服务：
+#   docker compose -f compose.prod.yml --profile optional up -d
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 不写 version（Compose v2 已弃用该字段，写了反而告警）
+# 镜像 tag 均变量化，便于按 tag / digest 回滚（见 scripts/rollback.sh）。
+
+services:
+  # ── PostgreSQL + pgvector ────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ${COMPOSE_PROJECT_NAME:-resume_coach}_postgres
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-resume_coach}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # 生产建议只暴露给内部网络，不要直接 publishing 到公网；此处保留供运维排障。
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-resume_coach}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── Redis（ARQ 队列 + 缓存，开启 AOF 持久化）────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-resume_coach}_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── 迁移 job（一次性，alembic upgrade head）─────────────────────────────
+  # 用法：docker compose -f compose.prod.yml run --rm migrate
+  # 或：  docker compose -f compose.prod.yml up migrate
+  # 注意：api 启动时也会先执行 alembic upgrade head（幂等），本服务主要用于
+  #       手动补跑迁移、回滚后重新对齐 schema 等场景。
+  migrate:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    image: ${DOCKER_REGISTRY:-ai-resume-coach}/api:${API_IMAGE_TAG:-latest}
+    restart: "no"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-resume_coach}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # 将宿主的 alembic 配置与迁移脚本挂载进容器（api 镜像未打包 migrations）。
+    volumes:
+      - ./apps/api/alembic.ini:/app/alembic.ini:ro
+      - ./apps/api/migrations:/app/migrations:ro
+    command: ["alembic", "upgrade", "head"]
+
+  # ── API（FastAPI / uvicorn）──────────────────────────────────────────────
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    image: ${DOCKER_REGISTRY:-ai-resume-coach}/api:${API_IMAGE_TAG:-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-resume_coach}_api
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ENVIRONMENT: production
+      # 容器内通过服务名 postgres/redis 访问；覆盖 .env 中指向 localhost 的取值。
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-resume_coach}
+      REDIS_URL: redis://redis:6379/0
+      API_PORT: "3001"
+      STORAGE_LOCAL_DIR: /app/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - appdata:/app/data
+      # 挂载 alembic 配置与迁移脚本，使 api 启动命令可先执行迁移。
+      - ./apps/api/alembic.ini:/app/alembic.ini:ro
+      - ./apps/api/migrations:/app/migrations:ro
+    ports:
+      - "${API_PORT:-3001}:3001"
+    healthcheck:
+      # 镜像基于 python:3.12-slim，自带 python；用标准库做 HTTP 探活。
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:3001/health').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command:
+      - "sh"
+      - "-c"
+      - "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 3001"
+
+  # ── Web（Next.js 14 生产构建）───────────────────────────────────────────
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    image: ${DOCKER_REGISTRY:-ai-resume-coach}/web:${WEB_IMAGE_TAG:-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-resume_coach}_web
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      # 前端在容器内通过服务名 api 访问后端（由 Next 运行时内联到产物）。
+      NEXT_PUBLIC_API_URL: http://api:3001
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    # 现有 web Dockerfile 的 CMD 是 dev 模式；此处覆盖为生产构建 + 启动。
+    command:
+      - "sh"
+      - "-c"
+      - "npm run build && exec npm run start"
+
+  # ── Worker（ARQ 后台任务）───────────────────────────────────────────────
+  worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    image: ${DOCKER_REGISTRY:-ai-resume-coach}/api:${API_IMAGE_TAG:-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-resume_coach}_worker
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-resume_coach}
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_LOCAL_DIR: /app/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # 等待 api 健康：api 启动已先执行 alembic upgrade head，避免迁移竞态。
+      api:
+        condition: service_healthy
+    volumes:
+      - appdata:/app/data
+      - ./apps/api/alembic.ini:/app/alembic.ini:ro
+      - ./apps/api/migrations:/app/migrations:ro
+    # ARQ worker 不暴露 HTTP 端口，这里通过 /proc 探活进程是否存活（python:3.12-slim 可移植）。
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,sys; live=any('app.workers.worker' in open('/proc/'+p+'/cmdline','rb').read().decode(errors='ignore') for p in os.listdir('/proc') if p.isdigit()); sys.exit(0 if live else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: ["python", "-m", "app.workers.worker"]
+
+  # ── 可选：MinIO（对象存储，STORAGE_PROVIDER=minio 时启用）──────────────
+  # 默认不启动；启用：docker compose -f compose.prod.yml --profile optional up -d
+  minio:
+    image: minio/minio:latest
+    profiles: ["optional"]
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  pgdata:
+  redisdata:
+  appdata:
+  miniodata:

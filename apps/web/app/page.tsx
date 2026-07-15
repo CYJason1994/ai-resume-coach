@@ -3,8 +3,8 @@ import UploadDropzone from "@/components/UploadDropzone";
 export default function Home() {
   return (
     <div className="space-y-10">
-      <section className="text-center">
-        <h1 className="text-4xl font-bold">
+      <section className="text-center" aria-labelledby="home-heading">
+        <h1 id="home-heading" className="text-4xl font-bold">
           <span className="gradient-text">简历优化平台</span>
         </h1>
         <p className="mt-3 opacity-70">

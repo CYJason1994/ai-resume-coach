@@ -7,12 +7,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 
 from app.api.deps import require_access_token
 from app.core.db import SessionLocal
 from app.core.errors import ForbiddenError, NotFoundError
+from app.core.audit import anonymized_subject, audit_event
 from app.core.logging import get_logger
 from app.core.security import verify_token
 from app.models.models import Resume
@@ -25,7 +26,9 @@ router = APIRouter(prefix="/resumes", tags=["resumes"])
 
 @router.delete("/{resume_id}")
 async def delete_resume(
-    resume_id: uuid.UUID, token: str = Depends(require_access_token)
+    resume_id: uuid.UUID,
+    request: Request,
+    token: str = Depends(require_access_token),
 ):
     async with SessionLocal() as session:
         resume = await session.get(Resume, resume_id)
@@ -42,4 +45,11 @@ async def delete_resume(
         resume.access_token_hash = ""  # 失效令牌
         await session.commit()
     logger.info("resume_deleted", resume_id=str(resume_id))
+    audit_event(
+        "resume.delete",
+        subject=anonymized_subject(token),
+        resource="resume",
+        resource_id=str(resume_id),
+        request_id=getattr(request.state, "request_id", None),
+    )
     return {"deleted": True, "resume_id": str(resume_id)}

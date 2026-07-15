@@ -36,3 +36,23 @@ body {
   background-clip: text;
   color: transparent;
 }
+
+/* 可见焦点环：保证键盘可达时的焦点指示（WCAG 2.4.7）。
+   :where() 0 特异性，不覆盖组件自带的 focus:ring。 */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* 尊重「减少动态效果」偏好：关闭动画/过渡/平滑滚动（WCAG 2.3.3 / 性能） */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

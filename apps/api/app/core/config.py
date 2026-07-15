@@ -59,6 +59,18 @@ class Settings(BaseSettings):
     QUOTA_LIMIT: int = 60  # 每个时间窗口内允许的最大请求数
     QUOTA_WINDOW_SECONDS: int = 60  # 固定窗口长度（秒）
 
+    # ── 可观测性（M4 W3：Sentry + OpenTelemetry）──
+    SENTRY_DSN: str = ""  # 非空才初始化 Sentry（错误上报）
+    SENTRY_TRACES_SAMPLE_RATE: float = 1.0
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = ""  # 非空才导出 trace/metric 到 OTLP collector
+    OTEL_SERVICE_NAME: str = "ai-resume-coach-api"
+
+    # ── 安全审计（M4 W4）──
+    SECURITY_HEADERS_ENABLED: bool = True  # 是否下发安全响应头
+    CSP_REPORT_ONLY: bool = True  # True=只上报不阻断（安全灰度，避免破坏前端）
+    CLAMAV_ENABLED: bool = False  # 生产开启后走真实 clamd 分支
+    HSTS_MAX_AGE: int = 31536000  # HSTS max-age（仅生产 HTTPS 域下发）
+
     # ── 存储 ──
     STORAGE_PROVIDER: str = "local"  # local | minio | cos
     STORAGE_LOCAL_DIR: str = "data/uploads"

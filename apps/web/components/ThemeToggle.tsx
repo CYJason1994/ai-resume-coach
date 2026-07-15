@@ -28,12 +28,18 @@ export default function ThemeToggle() {
   }
 
   return (
-    <div className="flex items-center gap-1 rounded-full border border-[var(--border)] p-1 text-sm">
+    <div
+      role="group"
+      aria-label="主题切换"
+      className="flex items-center gap-1 rounded-full border border-[var(--border)] p-1 text-sm"
+    >
       {(["light", "dark", "system"] as Theme[]).map((t) => (
         <button
           key={t}
+          type="button"
           onClick={() => change(t)}
-          className={`rounded-full px-3 py-1 transition ${
+          aria-pressed={theme === t}
+          className={`rounded-full px-3 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
             theme === t ? "bg-brand text-white" : "opacity-70 hover:opacity-100"
           }`}
         >

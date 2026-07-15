@@ -22,6 +22,7 @@ from app.core.auth import (
     hash_password,
     verify_password,
 )
+from app.core.audit import audit_event, user_subject
 from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.models.models import User
@@ -74,7 +75,7 @@ async def get_current_user(request: Request) -> User:
 
 
 @router.post("/auth/register", response_model=UserView, status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest, response: Response) -> UserView:
+async def register(body: RegisterRequest, request: Request, response: Response) -> UserView:
     email = body.email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="邮箱格式无效")
@@ -93,11 +94,18 @@ async def register(body: RegisterRequest, response: Response) -> UserView:
         await db.commit()
         await db.refresh(user)
     _set_session_cookie(response, create_session_token(user.id))
+    audit_event(
+        "auth.register",
+        subject=user_subject(user.id),
+        resource="user",
+        resource_id=str(user.id),
+        request_id=getattr(request.state, "request_id", None),
+    )
     return _to_view(user)
 
 
 @router.post("/auth/login", response_model=UserView)
-async def login(body: LoginRequest, response: Response) -> UserView:
+async def login(body: LoginRequest, request: Request, response: Response) -> UserView:
     email = body.email.strip().lower()
     async with SessionLocal() as db:
         user = (
@@ -108,12 +116,28 @@ async def login(body: LoginRequest, response: Response) -> UserView:
         user.last_login_at = datetime.now(timezone.utc)
         await db.commit()
     _set_session_cookie(response, create_session_token(user.id))
+    audit_event(
+        "auth.login",
+        subject=user_subject(user.id),
+        resource="user",
+        resource_id=str(user.id),
+        request_id=getattr(request.state, "request_id", None),
+    )
     return _to_view(user)
 
 
 @router.post("/auth/logout")
-async def logout(response: Response) -> dict:
+async def logout(request: Request, response: Response) -> dict:
+    token = request.cookies.get(_settings.AUTH_COOKIE_NAME)
+    uid = decode_session_token(token) if token else None
+    subject = user_subject(uid) if uid else "anon:none"
     _clear_session_cookie(response)
+    audit_event(
+        "auth.logout",
+        subject=subject,
+        resource="session",
+        request_id=getattr(request.state, "request_id", None),
+    )
     return {"detail": "已登出"}
 
 

@@ -1,0 +1,33 @@
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  trace_id:
+    mark-index-lookups-as-failed-on-not-found-error: false
+
+compactor:
+  compaction:
+    block_retention: 1h
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /tmp/tempo/blocks
+    wal:
+      path: /tmp/tempo/wal
+    block:
+      bloom_filter_bits_per_key: 16
+    blocklist_poll: 5s
+
+overrides:
+  defaults:
+    retention: 24h

@@ -152,9 +152,9 @@ export default function InterviewPage({ params }: { params: { taskId: string } }
 
   if (error) {
     return (
-      <div className="glass p-8 text-center">
+      <div className="glass p-8 text-center" role="alert" aria-live="assertive">
         <p className="text-rose-400">{error}</p>
-        <a href="/" className="mt-4 inline-block text-sm text-brand underline">
+        <a href="/" className="mt-4 inline-block text-sm text-brand underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
           返回首页
         </a>
       </div>
@@ -163,7 +163,7 @@ export default function InterviewPage({ params }: { params: { taskId: string } }
 
   if (!data || data.status !== "done") {
     return (
-      <div className="glass p-8 text-center">
+      <div className="glass p-8 text-center" role="status" aria-live="polite">
         <p className="text-lg font-medium">正在为你生成针对性面试题…</p>
         <p className="mt-2 text-sm opacity-60">通常只需数秒，完成后本页自动刷新</p>
       </div>
@@ -182,26 +182,27 @@ export default function InterviewPage({ params }: { params: { taskId: string } }
         <div className="flex gap-2">
           <button
             onClick={onStartMock}
-            className="magnetic-element rounded-lg bg-brand/20 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/30"
+            className="magnetic-element rounded-lg bg-brand/20 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >
             开始模拟面试 →
           </button>
           <button
             onClick={onCopy}
-            className="rounded-lg border border-brand/40 px-3 py-1.5 text-sm text-brand transition hover:bg-brand/10"
+            className="rounded-lg border border-brand/40 px-3 py-1.5 text-sm text-brand transition hover:bg-brand/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >
             {copied ? "已复制 ✓" : "复制 Markdown"}
           </button>
           <button
             onClick={onDownload}
-            className="rounded-lg border border-brand/40 px-3 py-1.5 text-sm text-brand transition hover:bg-brand/10"
+            className="rounded-lg border border-brand/40 px-3 py-1.5 text-sm text-brand transition hover:bg-brand/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >
             下载 .md
           </button>
           <button
             onClick={onFavorite}
             disabled={favorited}
-            className="rounded-lg border border-emerald-500/40 px-3 py-1.5 text-sm text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-50"
+            aria-pressed={favorited}
+            className="rounded-lg border border-emerald-500/40 px-3 py-1.5 text-sm text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >
             {favorited ? "已收藏 ★" : "收藏"}
           </button>
@@ -247,7 +248,7 @@ export default function InterviewPage({ params }: { params: { taskId: string } }
       ))}
 
       <div className="pt-2 text-center">
-        <a href="/" className="text-sm text-brand underline">
+        <a href="/" className="text-sm text-brand underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
           返回首页
         </a>
       </div>

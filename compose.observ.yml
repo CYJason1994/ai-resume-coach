@@ -1,0 +1,74 @@
+services:
+  # ── API（通过环境变量 OTLP 接入可观测性后端）──
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    environment:
+      # OpenTelemetry：HTTP/protobuf 导出到 collector 4318
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: ai-resume-coach-api
+      # Sentry（留空则静默，不联网）
+      SENTRY_DSN: ""
+      SENTRY_TRACES_SAMPLE_RATE: "1.0"
+      ENVIRONMENT: development
+    depends_on:
+      - otel-collector
+      - prometheus
+      - tempo
+    ports:
+      - "3001:3001"
+
+  # ── OpenTelemetry Collector（接收 OTLP trace/metric，转发到 Tempo/Prometheus）──
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.102.1
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./observ/otel-collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8889:8889" # metrics for collector itself
+    depends_on:
+      - tempo
+      - prometheus
+
+  # ── Tempo：分布式追踪存储与查询 ──
+  tempo:
+    image: grafana/tempo:2.4.1
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ./observ/tempo-config.yaml:/etc/tempo/config.yaml:ro
+    ports:
+      - "3200:3200" # tempo HTTP (querier)
+      - "9095:9095" # tempo grpc
+    depends_on:
+      - prometheus
+
+  # ── Prometheus：指标存储 ──
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./observ/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  # ── Grafana：统一可视化（自带 Tempo + Prometheus 数据源与示例 dashboard）──
+  grafana:
+    image: grafana/grafana:11.0.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./observ/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./observ/grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./observ/grafana-dashboard.json:/var/lib/grafana/dashboards/ai-resume-coach.json:ro
+    ports:
+      - "3002:3000"
+    depends_on:
+      - prometheus
+      - tempo
+      - otel-collector

@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.core.errors import ValidationError
 from app.core.logging import bind_request_id, get_logger
+from app.core.audit import anonymized_subject, audit_event
 from app.core.security import generate_access_token, hash_token
 from app.models.models import Resume, Task
 from app.schemas.schemas import ALLOWED_EXTENSIONS, ALLOWED_MAGIC_PREFIXES, UploadResponse
@@ -76,6 +77,14 @@ async def upload_resume(file: UploadFile = File(...)):
     await enqueue_process_resume(resume_id)
 
     logger.info("upload_accepted", resume_id=str(resume_id), task_id=str(task_id))
+    audit_event(
+        "resume.upload",
+        subject=anonymized_subject(access_token),
+        resource="resume",
+        resource_id=str(resume_id),
+        request_id=rid,
+        detail={"file_type": file_type, "size": len(data)},
+    )
     return UploadResponse(
         task_id=task_id,
         access_token=access_token,

@@ -1,0 +1,24 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      httpMethod: GET
+      tracesToMetrics:
+        datasourceUid: Prometheus
+        spanMetrics: true
+      serviceMap:
+        datasourceUid: Prometheus
+    # 通过 trace_id 从日志关联到追踪
+    tracesToLogs:
+      datasourceUid: Prometheus
+      tags: ["trace_id", "request_id"]

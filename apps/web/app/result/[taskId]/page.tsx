@@ -114,9 +114,9 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
 
   if (error) {
     return (
-      <div className="glass p-8 text-center">
+      <div className="glass p-8 text-center" role="alert" aria-live="assertive">
         <p className="text-rose-400">{error}</p>
-        <a href="/" className="mt-4 inline-block text-sm text-brand underline">
+        <a href="/" className="mt-4 inline-block text-sm text-brand underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
           返回首页
         </a>
       </div>
@@ -125,7 +125,7 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
 
   if (!result) {
     return (
-      <div className="glass p-8 text-center">
+      <div className="glass p-8 text-center" role="status" aria-live="polite">
         <p className="text-lg font-medium">正在分析你的简历…</p>
         <p className="mt-2 text-sm opacity-60">
           进度：{status?.progress ?? 0}% · 可在完成后刷新本页
@@ -144,7 +144,7 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
         <button
           onClick={onDelete}
           disabled={deleting}
-          className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-sm text-rose-300 transition hover:bg-rose-500/10 disabled:opacity-50"
+          className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-sm text-rose-300 transition hover:bg-rose-500/10 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
           {deleting ? "删除中…" : "删除简历"}
         </button>
@@ -210,13 +210,13 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
                 <button
                   onClick={() => onGenerate(m.job_id)}
                   disabled={generating === m.job_id}
-                  className="rounded-lg bg-brand/15 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-lg bg-brand/15 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/25 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                 >
                   {generating === m.job_id ? "生成中…" : "生成针对性面试题 →"}
                 </button>
                 <button
                   onClick={() => onMockInterview(m.job_id)}
-                  className="magnetic-element rounded-lg border border-brand/40 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/10"
+                  className="magnetic-element rounded-lg border border-brand/40 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                 >
                   模拟面试 →
                 </button>
