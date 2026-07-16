@@ -85,10 +85,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # 将宿主的 alembic 配置与迁移脚本挂载进容器（api 镜像未打包 migrations）。
-    volumes:
-      - ./apps/api/alembic.ini:/app/alembic.ini:ro
-      - ./apps/api/migrations:/app/migrations:ro
+    # 迁移脚本已打包进镜像（Dockerfile P2-10）：直接执行镜像内 alembic，无需挂载宿主源码。
+    volumes: []
     command: ["alembic", "upgrade", "head"]
 
   # ── API（FastAPI / uvicorn）──────────────────────────────────────────────
@@ -109,6 +107,11 @@ services:
       REDIS_URL: redis://redis:6379/0
       API_PORT: "3001"
       STORAGE_LOCAL_DIR: /app/data/uploads
+      # 岗位数据源路径（P1-2）：将宿主 ./data/jobs 挂载到 /app/data/jobs，
+      # 避免被 appdata 命名卷（覆盖 /app/data）遮蔽，确保 seed/ARQ 能读到真实岗位数据。
+      ONET_SNAPSHOT_PATH: /app/data/jobs/onet/snapshot.json
+      CURATED_JOBS_DIR: /app/data/jobs/curated
+      ZH_OVERLAY_PATH: /app/data/jobs/zh_overlay.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -116,9 +119,12 @@ services:
         condition: service_healthy
     volumes:
       - appdata:/app/data
-      # 挂载 alembic 配置与迁移脚本，使 api 启动命令可先执行迁移。
-      - ./apps/api/alembic.ini:/app/alembic.ini:ro
-      - ./apps/api/migrations:/app/migrations:ro
+      # 挂载宿主岗位数据（只读）；appdata 仅承载 /app/data/uploads 等运行时产物。
+      # 迁移脚本已打包进镜像（Dockerfile P2-10），无需再挂载宿主 migrations。
+      # 部署步骤（P1-2）：① 可选生成 O*NET 快照（缺省回退 curated）：
+      #   docker compose -f compose.prod.yml run --rm api python data/jobs/onet/ingest.py --src <onet_db> --out data/jobs/onet/snapshot.json
+      # ② 灌库：docker compose -f compose.prod.yml run --rm api python scripts/seed_jobs.py
+      - ./data/jobs:/app/data/jobs:ro
     ports:
       - "${API_PORT:-3001}:3001"
     healthcheck:
@@ -180,6 +186,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-resume_coach}
       REDIS_URL: redis://redis:6379/0
       STORAGE_LOCAL_DIR: /app/data/uploads
+      # 岗位数据源路径（P1-2，与 api 一致）。
+      ONET_SNAPSHOT_PATH: /app/data/jobs/onet/snapshot.json
+      CURATED_JOBS_DIR: /app/data/jobs/curated
+      ZH_OVERLAY_PATH: /app/data/jobs/zh_overlay.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -190,8 +200,7 @@ services:
         condition: service_healthy
     volumes:
       - appdata:/app/data
-      - ./apps/api/alembic.ini:/app/alembic.ini:ro
-      - ./apps/api/migrations:/app/migrations:ro
+      - ./data/jobs:/app/data/jobs:ro
     # ARQ worker 不暴露 HTTP 端口，这里通过 /proc 探活进程是否存活（python:3.12-slim 可移植）。
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import os,sys; live=any('app.workers.worker' in open('/proc/'+p+'/cmdline','rb').read().decode(errors='ignore') for p in os.listdir('/proc') if p.isdigit()); sys.exit(0 if live else 1)\""]

@@ -23,6 +23,8 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # 确保 pgvector 扩展存在（托管 Postgres / RDS / CloudSQL / Supabase 默认未装）。
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.create_table(
         "resumes",
         sa.Column("id", sa.UUID(), nullable=False),
@@ -165,3 +167,5 @@ def downgrade() -> None:
     op.drop_table("resume_parses")
     op.drop_table("tasks")
     op.drop_table("resumes")
+    # 全部表已删除，可安全卸载 vector 扩展（仅当本库独占该扩展时成立）。
+    op.execute("DROP EXTENSION IF EXISTS vector")

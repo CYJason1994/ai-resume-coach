@@ -14,6 +14,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
+from contextvars import ContextVar
 from datetime import date, datetime, timezone
 
 import httpx
@@ -30,6 +31,24 @@ _APPROX_USD_PER_1K_TOKENS = {
     "chat": 0.00006,   # 出入合计粗估
     "embed": 0.00002,  # deepseek-embedding ~$0.02/1M
 }
+
+# P1-6：单份简历/单任务的成本核算键（resume_id / task_id 字符串）。
+# 用 ContextVar 透传，避免改动所有 chat/embed 调用签名（否则会破坏既有测试替身）。
+# 调用方可显式 `set_llm_cost_key` 包裹一次 LLM 调用；方法亦接受可选 cost_key 参数。
+_llm_cost_key_ctx: ContextVar[str | None] = ContextVar("llm_cost_key", default=None)
+
+
+def set_llm_cost_key(key: str | None):
+    """在当前 async 上下文绑定成本核算键（resume_id / task_id）。返回 token 供 reset。"""
+    return _llm_cost_key_ctx.set(key)
+
+
+def reset_llm_cost_key(token) -> None:
+    _llm_cost_key_ctx.reset(token)
+
+
+def _resolve_cost_key(cost_key: str | None) -> str | None:
+    return cost_key if cost_key is not None else _llm_cost_key_ctx.get()
 
 
 class DegradationState:
@@ -97,29 +116,50 @@ class LlmProvider:
         # TODO(M2/M4): 进程内内存计数，多副本部署下各进程预算互不可见；
         # 应迁 Redis（incrbyfloat + TTL）实现共享日预算。
         self._daily_spend: dict[str, float] = {}
+        # P1-6：单份简历/单任务累计花费（键为 resume_id / task_id 字符串）。
+        self._resume_spend: dict[str, float] = {}
         self._spend_lock = asyncio.Lock()
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
     # ── 成本护栏 ──
-    async def _track_cost(self, kind: str, tokens: int) -> None:
+    async def _track_cost(self, kind: str, tokens: int, cost_key: str | None = None) -> None:
         today = date.today().isoformat()
+        cost = tokens / 1000 * _APPROX_USD_PER_1K_TOKENS[kind]
         async with self._spend_lock:
             self._daily_spend.setdefault(today, 0.0)
-            self._daily_spend[today] += tokens / 1000 * _APPROX_USD_PER_1K_TOKENS[kind]
+            self._daily_spend[today] += cost
+            if cost_key is not None:
+                self._resume_spend[cost_key] = self._resume_spend.get(cost_key, 0.0) + cost
 
     @property
     def daily_spend(self) -> float:
         return self._daily_spend.get(date.today().isoformat(), 0.0)
 
+    def resume_spend(self, cost_key: str) -> float:
+        """返回某 resume_id / task_id 累计 LLM 花费（P1-6）。"""
+        return self._resume_spend.get(cost_key, 0.0)
+
     def _budget_ok(self) -> bool:
         return self.daily_spend < settings.LLM_DAILY_BUDGET
 
-    async def _ensure_available(self) -> None:
-        """调用前校验预算与降级状态；降级冷却中直接抛错（不清除降级）。"""
+    def _resume_budget_ok(self, cost_key: str | None) -> bool:
+        """P1-6：单份简历/任务成本护栏（默认 ~$0.01）。无 cost_key 时不限制。"""
+        if cost_key is None:
+            return True
+        return self.resume_spend(cost_key) < settings.LLM_COST_CAP_PER_RESUME
+
+    async def _ensure_available(self, cost_key: str | None = None) -> None:
+        """调用前校验预算与降级状态；降级冷却中直接抛错（不清除降级）。
+
+        P1-6：同时校验单份简历/任务成本上限；超额时抛错，
+        由调用方的规则兜底接管（不白屏/不崩）。
+        """
         if not self._budget_ok():
             raise LlmUnavailableError("LLM 日预算耗尽，使用规则匹配兜底")
+        if not self._resume_budget_ok(cost_key):
+            raise LlmUnavailableError("单份简历 LLM 成本已达上限，使用规则匹配兜底")
         if self.degradation.degraded:
             recovered = await self.degradation.maybe_recover(self.health_check)
             if not recovered:
@@ -127,8 +167,9 @@ class LlmProvider:
 
     # ── 接口 ──
     async def chat(self, messages: list[dict], *, temperature: float = 0.2,
-                   response_format: dict | None = None) -> str:
-        await self._ensure_available()
+                   response_format: dict | None = None, cost_key: str | None = None) -> str:
+        key = _resolve_cost_key(cost_key)
+        await self._ensure_available(key)
         payload: dict = {
             "model": settings.LLM_CHAT_MODEL,
             "messages": messages,
@@ -142,7 +183,7 @@ class LlmProvider:
                 r.raise_for_status()
                 data = r.json()
                 usage = data.get("usage", {})
-                await self._track_cost("chat", usage.get("total_tokens", 0))
+                await self._track_cost("chat", usage.get("total_tokens", 0), key)
                 self.degradation.note_success()
                 return data["choices"][0]["message"]["content"]
             except Exception as e:  # noqa: BLE001
@@ -156,13 +197,15 @@ class LlmProvider:
         *,
         temperature: float = 0.2,
         response_format: dict | None = None,
+        cost_key: str | None = None,
     ) -> AsyncIterator[str]:
         """流式对话（SSE 友好）：逐片 yield 内容增量（DeepSeek `stream:true`）。
 
         复用信号量(6) + 预算护栏 + 降级状态机；失败转 `LlmUnavailableError`
         （降级语义与 `chat` 一致）。仅产出 `choices[0].delta.content` 文本增量。
         """
-        await self._ensure_available()
+        key = _resolve_cost_key(cost_key)
+        await self._ensure_available(key)
         # DeepSeek（OpenAI 兼容）默认流式不回传 usage；显式开启才能在末片记账，
         # 否则 M3 流式面试的成本不计入日预算护栏（P1-1）。
         payload: dict = {
@@ -202,7 +245,7 @@ class LlmProvider:
                         # 末片携带 usage，顺手记账（开启 include_usage 后生效）
                         if chunk.get("usage"):
                             await self._track_cost(
-                                "chat", chunk["usage"].get("total_tokens", 0)
+                                "chat", chunk["usage"].get("total_tokens", 0), key
                             )
                 self.degradation.note_success()
             except Exception as e:  # noqa: BLE001
@@ -210,8 +253,9 @@ class LlmProvider:
                 logger.warning("llm_stream_chat_failed", error=str(e))
                 raise LlmUnavailableError(str(e)) from e
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        await self._ensure_available()
+    async def embed(self, texts: list[str], cost_key: str | None = None) -> list[list[float]]:
+        key = _resolve_cost_key(cost_key)
+        await self._ensure_available(key)
         async with self._sem:
             try:
                 r = await self._client.post(
@@ -220,7 +264,7 @@ class LlmProvider:
                 )
                 r.raise_for_status()
                 data = r.json()
-                await self._track_cost("embed", data.get("usage", {}).get("total_tokens", 0))
+                await self._track_cost("embed", data.get("usage", {}).get("total_tokens", 0), key)
                 self.degradation.note_success()
                 return [item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])]
             except Exception as e:  # noqa: BLE001

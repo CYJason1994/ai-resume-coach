@@ -23,7 +23,12 @@ from app.core.errors import register_error_handlers
 from app.core.llm import get_llm
 from app.core.logging import bind_request_id, get_logger, setup_logging
 from app.core.observability import observability_middleware, setup_observability
-from app.core.quota import get_quota_enforcer, quota_subject
+from app.core.quota import (
+    client_host_from_request,
+    get_global_enforcer,
+    get_quota_enforcer,
+    quota_subject,
+)
 from app.core.security_headers import security_headers_middleware
 from app.routers import (
     auth,
@@ -78,14 +83,29 @@ async def observe(request: Request, call_next):
     return await observability_middleware(request, call_next)
 
 
-# ── 配额限流（M4 W2）：per-subject 固定窗口，叠加于 per-IP + LLM 信号量(6) ──
+# ── 配额限流（M4 W2）：全局天花板 + per-subject 固定窗口，叠加于 per-IP + LLM 信号量(6) ──
 @app.middleware("http")
 async def quota_middleware(request: Request, call_next):
     if request.url.path.startswith("/api"):
+        # P2-15：先查全局天花板（多令牌攻击者也受同一上限约束），再查 per-subject。
+        try:
+            global_allowed = await get_global_enforcer().allow_global()
+        except Exception:  # noqa: BLE001 — 兜底放行
+            global_allowed = True
+        if not global_allowed:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "title": "QUOTA_EXCEEDED",
+                    "status": 429,
+                    "detail": "请求过于频繁，请稍后再试",
+                    "request_id": getattr(request.state, "request_id", None),
+                },
+            )
         token = request.headers.get("X-Access-Token") or request.cookies.get(
             settings.AUTH_COOKIE_NAME
         )
-        subject = quota_subject(token, request.client.host if request.client else None)
+        subject = quota_subject(token, client_host_from_request(request))
         try:
             allowed = await get_quota_enforcer().allow(subject)
         except Exception:  # noqa: BLE001 — 兜底放行

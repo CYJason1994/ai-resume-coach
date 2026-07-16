@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import LlmUnavailableError
-from app.core.llm import get_llm
+from app.core.llm import get_llm, reset_llm_cost_key, set_llm_cost_key
 from app.core.logging import get_logger
 from app.models.models import InterviewQuestion, InterviewSession, Job, ResumeParse
 
@@ -218,6 +218,7 @@ async def stream_session_reply(
         llm = get_llm()
 
         reply_parts: list[str] = []
+        tok = set_llm_cost_key(str(sess.resume_id))
         try:
             async for chunk in llm.stream_chat(messages):
                 reply_parts.append(chunk)
@@ -226,9 +227,14 @@ async def stream_session_reply(
             logger.warning("interview_stream_degraded", session_id=str(sess.id), error=str(e))
             yield _sse({"type": "error", "value": "AI 面试官暂不可用，请稍后再试。"})
             return
+        reset_llm_cost_key(tok)
 
         reply = "".join(reply_parts)
-        feedback = await _score_answer(llm, user_message, reply)
+        tok = set_llm_cost_key(str(sess.resume_id))
+        try:
+            feedback = await _score_answer(llm, user_message, reply)
+        finally:
+            reset_llm_cost_key(tok)
 
         # 评分归属用户本轮回答；追加助手回复
         transcript[-1]["feedback"] = feedback
@@ -237,7 +243,11 @@ async def stream_session_reply(
 
         # 周期摘要（上下文压缩）
         if len(transcript) >= SUMMARY_EVERY:
-            sess.summary_text = await _summarize(llm, transcript)
+            tok = set_llm_cost_key(str(sess.resume_id))
+            try:
+                sess.summary_text = await _summarize(llm, transcript)
+            finally:
+                reset_llm_cost_key(tok)
 
         sess.updated_at = _now()
         try:
@@ -271,6 +281,7 @@ async def overall_evaluate(db: AsyncSession, sess: InterviewSession) -> dict:
         return overall
     convo = "\n".join(f"{m['role']}: {m['content']}" for m in transcript)
     llm = get_llm()
+    tok = set_llm_cost_key(str(sess.resume_id))
     prompt = [
         {"role": "system", "content": "你是面试评估专家。基于完整模拟面试对话，给出整体评估与可执行建议。"},
         {
@@ -301,6 +312,8 @@ async def overall_evaluate(db: AsyncSession, sess: InterviewSession) -> dict:
             "top_gaps": [],
             "suggestion": "",
         }
+    finally:
+        reset_llm_cost_key(tok)
     sess.overall_score = overall
     sess.status = "finished"
     sess.updated_at = _now()

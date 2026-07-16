@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, api, getErrorMessage, ResumeResult, TaskStatus } from "@/lib/api";
 
@@ -34,6 +34,41 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [generating, setGenerating] = useState<string | null>(null);
+  // P3：用可访问的确认弹窗替代 confirm()/alert()
+  const [confirming, setConfirming] = useState(false);
+  const [liveMsg, setLiveMsg] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // P3：弹窗打开时把焦点移入，并支持 Esc 关闭 + 焦点限制在弹窗内
+  useEffect(() => {
+    if (!confirming) return;
+    const el = dialogRef.current;
+    if (el) {
+      const btn = el.querySelector<HTMLButtonElement>("button[data-autofocus]");
+      (btn ?? el).focus();
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setConfirming(false);
+        return;
+      }
+      if (e.key === "Tab" && el) {
+        const f = el.querySelectorAll<HTMLElement>("button");
+        if (f.length === 0) return;
+        const first = f[0];
+        const last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirming]);
 
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get("token") || "";
@@ -99,15 +134,19 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
 
   const onDelete = async () => {
     if (!result || !token) return;
-    if (!confirm("确认删除这份简历？文件与可访问的分析结果将被移除，服务器上的原始数据将按要求清除。")) return;
+    // P3：两步式可访问确认——首次点击打开弹窗，弹窗内确认按钮再次触发才真正删除
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+    setConfirming(false);
     setDeleting(true);
     try {
       await api.deleteResume(result.resume_id, token);
-      alert("简历已删除。");
+      setLiveMsg("简历已删除。");
       window.location.href = "/";
     } catch (e) {
       setError(getErrorMessage(e));
-    } finally {
       setDeleting(false);
     }
   };
@@ -137,6 +176,11 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
   const s = result.structured;
   return (
     <div className="space-y-6">
+      {/* P3：删除结果的状态播报区（替代 alert()） */}
+      <div className="sr-only" role="status" aria-live="assertive">
+        {liveMsg}
+      </div>
+
       <section className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">
           <span className="gradient-text">分析结果</span>
@@ -144,11 +188,57 @@ export default function ResultPage({ params }: { params: { taskId: string } }) {
         <button
           onClick={onDelete}
           disabled={deleting}
+          aria-haspopup="dialog"
+          aria-expanded={confirming}
           className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-sm text-rose-300 transition hover:bg-rose-500/10 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
-          {deleting ? "删除中…" : "删除简历"}
+          {deleting ? "删除中…" : confirming ? "取消删除？" : "删除简历"}
         </button>
       </section>
+
+      {/* P3：可访问的删除确认弹窗（替代 confirm()） */}
+      {confirming && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setConfirming(false);
+          }}
+        >
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="del-dlg-title"
+            aria-describedby="del-dlg-desc"
+            className="glass max-w-sm w-full p-6"
+          >
+            <h2 id="del-dlg-title" className="text-lg font-semibold">
+              确认删除
+            </h2>
+            <p id="del-dlg-desc" className="mt-2 text-sm opacity-80">
+              确认删除这份简历？文件与可访问的分析结果将被移除，服务器上的原始数据将按要求清除。
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className="rounded-lg border border-white/15 px-3 py-1.5 text-sm transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                data-autofocus
+                onClick={onDelete}
+                disabled={deleting}
+                className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-sm text-rose-300 transition hover:bg-rose-500/10 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              >
+                {deleting ? "删除中…" : "确认删除"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 结构化预览 */}
       <section className="glass p-6">

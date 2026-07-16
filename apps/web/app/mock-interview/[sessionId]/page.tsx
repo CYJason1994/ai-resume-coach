@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   api,
@@ -46,6 +46,63 @@ function reportMarkdown(s: InterviewSession, o: SessionOverall): string {
   return lines.join("\n");
 }
 
+// P3：用 React.memo 包裹单条消息，避免每个 token 都重渲染整段对话列表
+const MessageRow = memo(function MessageRow({
+  m,
+  isStreamingCursor,
+}: {
+  m: ChatMessage;
+  isStreamingCursor: boolean;
+}) {
+  if (m.role === "assistant") {
+    return (
+      <div className="flex justify-start" role="group" aria-label="面试官">
+        <div className="glass max-w-[85%] p-4">
+          <p className="leading-relaxed whitespace-pre-wrap">
+            {m.content || (isStreamingCursor ? "…" : "")}
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col items-end gap-1" role="group" aria-label="你">
+      <div className="max-w-[85%] rounded-2xl bg-brand/15 p-4">
+        <p className="leading-relaxed whitespace-pre-wrap">{m.content}</p>
+      </div>
+      {m.feedback && (
+        <div className="glass w-full max-w-[85%] p-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-brand">本轮评分</span>
+            <span
+              className={
+                "rounded-full px-2.5 py-0.5 text-xs font-semibold " +
+                (m.feedback.score >= 70
+                  ? "bg-emerald-500/15 text-emerald-300"
+                  : m.feedback.score >= 40
+                    ? "bg-amber-500/15 text-amber-300"
+                    : "bg-rose-500/15 text-rose-300")
+              }
+            >
+              {m.feedback.score} / 100
+            </span>
+          </div>
+          {m.feedback.strengths.length > 0 && (
+            <p className="mt-2 text-emerald-300">
+              亮点：{m.feedback.strengths.join("、")}
+            </p>
+          )}
+          {m.feedback.improvements.length > 0 && (
+            <p className="mt-1 text-rose-300">
+              改进：{m.feedback.improvements.join("、")}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
 export default function MockInterviewPage({
   params,
 }: {
@@ -61,6 +118,8 @@ export default function MockInterviewPage({
   const [overall, setOverall] = useState<SessionOverall | null>(null);
   const [finished, setFinished] = useState(false);
   const [copied, setCopied] = useState(false);
+  // 仅用于屏幕阅读器的回合级状态播报（P2-13）：流式期间不逐 token 朗读，仅在回合边界更新
+  const [liveStatus, setLiveStatus] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   // 记录上一条消息数量，区分「新增消息」（平滑滚动）与「流式内容增量」（即时滚动），避免逐 token smooth 造成卡顿
   const prevLenRef = useRef(0);
@@ -100,8 +159,9 @@ export default function MockInterviewPage({
     if (!el) return;
     const grew = messages.length > prevLenRef.current;
     prevLenRef.current = messages.length;
-    // 仅用 transform/scroll 驱动，避免触发 layout/paint 重排；平滑仅用于新消息
-    el.scrollTo({ top: el.scrollHeight, behavior: grew ? "smooth" : "auto" });
+    // 尊重 prefers-reduced-motion：减少动画时一律用 'auto'，否则新消息用平滑滚动（P2-12）
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "auto" : grew ? "smooth" : "auto" });
   }, [messages]);
 
   const onSend = async () => {
@@ -115,6 +175,8 @@ export default function MockInterviewPage({
     const asstIdx = messages.length + 1;
     setInput("");
     setStreaming(true);
+    // P2-13：流式开始即播报「正在输入」，避免逐 token 朗读
+    setLiveStatus("面试官正在输入…");
     // 流异常/出错时清理悬挂的空助手气泡（P2-6）
     const cleanupEmptyAssistant = () =>
       setMessages((m) => {
@@ -146,6 +208,8 @@ export default function MockInterviewPage({
       cleanupEmptyAssistant();
     } finally {
       setStreaming(false);
+      // P2-13：回合结束播报一次「已回复」
+      setLiveStatus("面试官已回复");
     }
   };
 
@@ -245,13 +309,19 @@ export default function MockInterviewPage({
         </div>
       )}
 
+      {/* P2-13：屏幕阅读器回合级状态播报区（流式期间不朗读逐 token 内容） */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {liveStatus}
+      </div>
+
       {/* 对话区 */}
       <div
         ref={scrollRef}
         className="flex-1 space-y-4 overflow-y-auto pr-1"
         role="log"
-        aria-live="polite"
-        aria-relevant="additions text"
+        // P2-13：流式进行中关闭实时播报，避免每个 token 都重读整段对话；回合间隙恢复 polite
+        aria-live={streaming ? "off" : "polite"}
+        aria-relevant="additions"
         aria-label="面试对话记录"
       >
         {messages.length === 0 && (
@@ -259,52 +329,13 @@ export default function MockInterviewPage({
             面试即将开始。介绍一下自己，或回答面试官的第一个问题吧。
           </p>
         )}
-        {messages.map((m, i) =>
-          m.role === "assistant" ? (
-            <div key={i} className="flex justify-start">
-              <div className="glass max-w-[85%] p-4">
-                <p className="leading-relaxed whitespace-pre-wrap">
-                  {m.content || (streaming && i === messages.length - 1 ? "…" : "")}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div key={i} className="flex flex-col items-end gap-1">
-              <div className="max-w-[85%] rounded-2xl bg-brand/15 p-4">
-                <p className="leading-relaxed whitespace-pre-wrap">{m.content}</p>
-              </div>
-              {m.feedback && (
-                <div className="glass w-full max-w-[85%] p-3 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-brand">本轮评分</span>
-                    <span
-                      className={
-                        "rounded-full px-2.5 py-0.5 text-xs font-semibold " +
-                        (m.feedback.score >= 70
-                          ? "bg-emerald-500/15 text-emerald-300"
-                          : m.feedback.score >= 40
-                            ? "bg-amber-500/15 text-amber-300"
-                            : "bg-rose-500/15 text-rose-300")
-                      }
-                    >
-                      {m.feedback.score} / 100
-                    </span>
-                  </div>
-                  {m.feedback.strengths.length > 0 && (
-                    <p className="mt-2 text-emerald-300">
-                      亮点：{m.feedback.strengths.join("、")}
-                    </p>
-                  )}
-                  {m.feedback.improvements.length > 0 && (
-                    <p className="mt-1 text-rose-300">
-                      改进：{m.feedback.improvements.join("、")}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        )}
+        {messages.map((m, i) => (
+          <MessageRow
+            key={i}
+            m={m}
+            isStreamingCursor={streaming && i === messages.length - 1}
+          />
+        ))}
       </div>
 
       {/* 输入区 */}

@@ -88,6 +88,8 @@ async def upload_resume(file: UploadFile = File(...)):
     return UploadResponse(
         task_id=task_id,
         access_token=access_token,
-        result_url=f"/result/{task_id}?token={access_token}",
+        # P2-3：token 不进 URL，避免泄露到代理/访问日志与 Referer。
+        # 客户端已通过响应体 access_token 字段 + X-Access-Token 头持有令牌。
+        result_url=f"/result/{task_id}",
         status="uploaded",
     )

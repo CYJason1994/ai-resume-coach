@@ -305,21 +305,21 @@ async def observability_middleware(request: Any, call_next: Any) -> Any:
                     trace_id_ctx.set(tid)
                     request.state.trace_id = tid
                 _set_common_attrs(span, request, tid)
+                # P1-1：call_next 仅调用一次；其抛错时不得二次调用，
+                # 否则会重复写库 / 重复入队 ARQ / 重复计费 / 重复写文件。
                 response = await call_next(request)
                 _finalize_span(span, request, response, tid)
-        except Exception:  # noqa: BLE001 — 观测失败绝不影响主流程
-            if response is None:
-                try:
-                    response = await call_next(request)
-                except Exception:
-                    raise
+        except Exception:  # noqa: BLE001 — 观测/下游异常：直接上浮，绝不二次 call_next
+            # call_next 已在本 span 内执行且仅一次；此处只是确保异常不被吞掉，
+            # 由全局异常处理器产出 500。span 属性/终态设置的异常已被内部 try 吞掉。
+            raise
     else:
         response = await call_next(request)
 
     duration = time.perf_counter() - start
     _record_request_metrics(request, response, duration, tid)
     # 关键：绝不消费响应体，仅写 header（SSE 流式响应原样透传）
-    if tid:
+    if tid and response is not None:
         response.headers["X-Trace-ID"] = tid
     return response
 

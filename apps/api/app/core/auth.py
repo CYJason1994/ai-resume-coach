@@ -20,6 +20,14 @@ from app.core.logging import get_logger
 settings = get_settings()
 logger = get_logger("auth")
 
+# P0-1：生产环境若未配置 AUTH_JWT_SECRET，拒绝以公开默认密钥启动（fail-loud）。
+# 否则攻击者可伪造任意用户会话 JWT → 账号接管。非生产保留不安全 dev 默认 + 告警。
+if settings.is_production and not settings.AUTH_JWT_SECRET:
+    raise RuntimeError(
+        "AUTH_JWT_SECRET must be set in production "
+        "(refusing to start with an insecure default)"
+    )
+
 _ph = PasswordHasher()  # argon2id 默认参数（内存/迭代随库版本演进）
 _SECRET = settings.AUTH_JWT_SECRET or "dev-insecure-session-secret-CHANGE-ME"
 if not settings.AUTH_JWT_SECRET:

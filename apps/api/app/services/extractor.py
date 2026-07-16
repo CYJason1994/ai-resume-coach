@@ -12,7 +12,7 @@ import re
 from pydantic import ValidationError
 
 from app.core.config import get_settings
-from app.core.llm import LlmUnavailableError, get_llm
+from app.core.llm import LlmUnavailableError, get_llm, reset_llm_cost_key, set_llm_cost_key
 from app.core.logging import get_logger
 from app.schemas.schemas import ResumeStructured
 
@@ -52,20 +52,26 @@ def _truncate(text: str) -> str:
     return text[:LLM_MAX_INPUT_CHARS]
 
 
-async def extract_structured(raw_text: str) -> ResumeStructured:
+async def extract_structured(raw_text: str, cost_key: str | None = None) -> ResumeStructured:
+    """结构化抽取；可选 cost_key（resume_id）用于 P1-6 单份成本核算。"""
     text = raw_text.strip()
     if not text:
         return ResumeStructured()
     # 1) 优先 LLM
     try:
         llm = get_llm()
-        resp = await llm.chat(
-            [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": _USER_TEMPLATE.format(text=_truncate(text))},
-            ],
-            response_format={"type": "json_object"},
-        )
+        # P1-6：绑定成本核算键（无则不影响既有调用/测试）
+        tok = set_llm_cost_key(cost_key)
+        try:
+            resp = await llm.chat(
+                [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": _USER_TEMPLATE.format(text=_truncate(text))},
+                ],
+                response_format={"type": "json_object"},
+            )
+        finally:
+            reset_llm_cost_key(tok)
         data = json.loads(resp)
         return ResumeStructured(**_coerce(data))
     except (LlmUnavailableError, json.JSONDecodeError, ValidationError) as e:

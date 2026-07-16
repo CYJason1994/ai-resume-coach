@@ -83,20 +83,23 @@ rollback_image() {
   local REMOTE_REF COMPOSE_TAG
   if [[ "${REF}" == sha256:* ]]; then
     REMOTE_REF="${BASE}@${REF}"
-    COMPOSE_TAG="${REF}"          # 仅用于给 compose 的 image 打 tag 对齐
+    # digest 不能直接当 image tag（冒号非法，会报 invalid reference format），
+    # 故先 pull 再打一个合法别名 rollback-<sha前8位>，用别名驱动 compose 回滚。
+    local ALIAS="rollback-${REF:7:8}"
+    echo "[INFO] 拉取历史镜像: ${REMOTE_REF}"
+    docker pull "${REMOTE_REF}"
+    docker tag "${REMOTE_REF}" "${BASE}:${ALIAS}"
+    COMPOSE_TAG="${ALIAS}"
   else
     REMOTE_REF="${BASE}:${REF}"
     COMPOSE_TAG="${REF}"
+    echo "[INFO] 拉取历史镜像: ${REMOTE_REF}"
+    docker pull "${REMOTE_REF}"
+    docker tag "${REMOTE_REF}" "${BASE}:${COMPOSE_TAG}"
   fi
 
-  echo "[INFO] 拉取历史镜像: ${REMOTE_REF}"
-  docker pull "${REMOTE_REF}"
-
-  # 将拉取的镜像重新打 tag，使其与 compose 的 image 字段一致（便于 --no-build 复用）
+  # 用对齐后的 tag（合法别名或原 tag）重新部署该服务（--no-build 避免本地重新构建覆盖）
   local COMPOSE_IMAGE="${BASE}:${COMPOSE_TAG}"
-  docker tag "${REMOTE_REF}" "${COMPOSE_IMAGE}"
-
-  # 用对齐后的 tag 重新部署该服务（--no-build 避免本地重新构建覆盖）
   echo "[INFO] 重新部署服务 ${SERVICE} (image=${COMPOSE_IMAGE}) ..."
   API_IMAGE_TAG="${COMPOSE_TAG}" WEB_IMAGE_TAG="${COMPOSE_TAG}" \
     docker compose -f "${COMPOSE_FILE}" up -d --no-build "${SERVICE}"

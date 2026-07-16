@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -126,6 +127,11 @@ class JobMatch(Base):
     missing_skills: Mapped[list[str]] = mapped_column(JSONB, default=list)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    # P2-4：幂等护栏，配合 matcher._persist_matches 的 upsert 抵抗 ARQ 重复投递
+    __table_args__ = (
+        UniqueConstraint("resume_id", "job_id", name="uq_job_match_resume_job"),
+    )
 
 
 class InterviewQuestion(Base):

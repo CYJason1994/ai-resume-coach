@@ -27,6 +27,9 @@ PG_USER="${PG_USER:-${POSTGRES_USER:-postgres}}"
 PG_DB="${PG_DB:-${POSTGRES_DB:-resume_coach}}"
 RESTORE_TMP="${RESTORE_TMP:-/tmp/resume_coach_restore_$$}"   # 解密后的明文临时目录
 
+# P2-11：任何退出（含失败 / 中断）都清理明文临时目录，避免 PII dump 残留 /tmp。
+trap 'rm -rf "${RESTORE_TMP}"' EXIT INT TERM
+
 # ── 校验参数与必填项 ───────────────────────────────────────────────────────
 if [[ $# -lt 1 ]]; then
   echo "用法: BACKUP_ENCRYPT_PASS='***' $0 <加密归档文件>" >&2

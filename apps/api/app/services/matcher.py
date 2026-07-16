@@ -12,8 +12,12 @@ from __future__ import annotations
 import json
 import uuid
 from sqlalchemy import select
+try:  # SQLAlchemy 2.0 的 postgresql 方言以 `insert` 暴露 PG 专属 upsert
+    from sqlalchemy.dialects.postgresql import pg_insert
+except ImportError:  # noqa: BLE001 — 兼容不同导出位置/版本
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.core.llm import LlmUnavailableError, get_llm
+from app.core.llm import LlmUnavailableError, get_llm, reset_llm_cost_key, set_llm_cost_key
 from app.core.logging import get_logger
 from app.models.models import Job, JobMatch
 from app.schemas.schemas import ResumeStructured
@@ -24,6 +28,8 @@ TOP_K = 10  # 向量粗排取 top-10 再精排
 
 
 def _resume_embed_text(s: ResumeStructured) -> str:
+    """构造嵌入文本（PII 白名单，P2-5）：仅技能/摘要/教育/职位，
+    不含 work_history / projects（可能含公司名等 PII，不得进入向量库）。"""
     parts: list[str] = []
     if s.title:
         parts.append(f"目标职位：{s.title}")
@@ -31,8 +37,6 @@ def _resume_embed_text(s: ResumeStructured) -> str:
         parts.append(s.summary)
     if s.skills:
         parts.append("技能：" + "、".join(s.skills))
-    if s.work_history:
-        parts.append("经历：" + "；".join(s.work_history))
     if s.education:
         parts.append("教育：" + "；".join(s.education))
     return "\n".join(parts) or "简历内容"
@@ -49,47 +53,53 @@ async def match_resume(
       对全部岗位按技能重叠度打分取 top-K。保证 MVP 在无 DeepSeek Key 时
       仍能产出匹配（与 v0.3「整条链路不崩」承诺一致）。
     """
-    text = _resume_embed_text(structured)
-    # 1) 嵌入（失败则降级为纯规则匹配，而非整段放弃）
+    # P1-6：以 resume_id 作为成本核算键，单次简历匹配受单份成本上限约束
+    tok = set_llm_cost_key(str(resume_id))
     try:
-        emb = (await get_llm().embed([text]))[0]
-    except Exception as e:  # noqa: BLE001
-        logger.warning("match_embed_unavailable", error=str(e), mode="rule_fallback")
-        return await _rule_match_all(resume_id, structured, session)
-
-    # 2) 向量粗排
-    stmt = (
-        select(Job)
-        .where(Job.embedding.isnot(None))
-        .order_by(Job.embedding.cosine_distance(emb))
-        .limit(TOP_K)
-    )
-    top_jobs = list((await session.scalars(stmt)).all())
-    if not top_jobs:
-        # 岗位库无嵌入向量（如 seed 时未配置 Key）→ 回退纯规则匹配
-        logger.info("match_no_embeddings", hint="岗位库无嵌入向量，回退纯规则匹配")
-        return await _rule_match_all(resume_id, structured, session)
-
-    # 3) 精排 + 理由（LLM，失败回退规则）
-    results: list[JobMatch] = []
-    for job in top_jobs:
+        text = _resume_embed_text(structured)
+        # 1) 嵌入（失败则降级为纯规则匹配，而非整段放弃）
         try:
-            score, matched, missing, rationale = await _score_one(structured, job)
+            emb = (await get_llm().embed([text]))[0]
         except Exception as e:  # noqa: BLE001
-            logger.warning("match_score_fallback", job=job.title, error=str(e))
-            score, matched, missing, rationale = _rule_score(structured, job)
-        jm = JobMatch(
-            resume_id=resume_id,
-            job_id=job.id,
-            score=score,
-            matched_skills=matched,
-            missing_skills=missing,
-            rationale=rationale,
+            logger.warning("match_embed_unavailable", error=str(e), mode="rule_fallback")
+            return await _rule_match_all(resume_id, structured, session)
+
+        # 2) 向量粗排
+        stmt = (
+            select(Job)
+            .where(Job.embedding.isnot(None))
+            .order_by(Job.embedding.cosine_distance(emb))
+            .limit(TOP_K)
         )
-        session.add(jm)
-        results.append(jm)
-    await session.flush()
-    return results
+        top_jobs = list((await session.scalars(stmt)).all())
+        if not top_jobs:
+            # 岗位库无嵌入向量（如 seed 时未配置 Key）→ 回退纯规则匹配
+            logger.info("match_no_embeddings", hint="岗位库无嵌入向量，回退纯规则匹配")
+            return await _rule_match_all(resume_id, structured, session)
+
+        # 3) 精排 + 理由（LLM，失败回退规则）
+        results: list[JobMatch] = []
+        for job in top_jobs:
+            try:
+                score, matched, missing, rationale = await _score_one(structured, job)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("match_score_fallback", job=job.title, error=str(e))
+                score, matched, missing, rationale = _rule_score(structured, job)
+            results.append(
+                JobMatch(
+                    resume_id=resume_id,
+                    job_id=job.id,
+                    score=score,
+                    matched_skills=matched,
+                    missing_skills=missing,
+                    rationale=rationale,
+                )
+            )
+        # P2-4：幂等 upsert（同 resume_id/job_id 重复投递不重复累积）
+        await _persist_matches(session, results)
+        return results
+    finally:
+        reset_llm_cost_key(tok)
 
 
 async def _rule_match_all(
@@ -120,9 +130,47 @@ async def _rule_match_all(
                 rationale=rationale,
             )
         )
-        session.add(results[-1])
-    await session.flush()
+    # P2-4：幂等 upsert（同 resume_id/job_id 重复投递不重复累积）
+    await _persist_matches(session, results)
     return results
+
+
+async def _persist_matches(session, matches: list[JobMatch]) -> None:
+    """幂等写入 JobMatch（P2-4）。
+
+    真实 DB 走 pg_insert upsert（依赖 JobMatch 上的 (resume_id, job_id) 唯一约束）；
+    无法执行 `execute` 的测试替身退回普通 `add`（保持旧行为，便于单测）。
+    """
+    if not matches:
+        return
+    try:
+        stmt = pg_insert(JobMatch).values(
+            [
+                {
+                    "resume_id": m.resume_id,
+                    "job_id": m.job_id,
+                    "score": m.score,
+                    "matched_skills": m.matched_skills,
+                    "missing_skills": m.missing_skills,
+                    "rationale": m.rationale,
+                }
+                for m in matches
+            ]
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["resume_id", "job_id"],
+            set_={
+                "score": stmt.excluded.score,
+                "matched_skills": stmt.excluded.matched_skills,
+                "missing_skills": stmt.excluded.missing_skills,
+                "rationale": stmt.excluded.rationale,
+            },
+        )
+        await session.execute(stmt)
+    except Exception:  # noqa: BLE001 — 无 execute（测试替身）时退回 add
+        for m in matches:
+            session.add(m)
+    await session.flush()
 
 
 async def _score_one(structured: ResumeStructured, job: Job) -> tuple[float, list, list, str]:

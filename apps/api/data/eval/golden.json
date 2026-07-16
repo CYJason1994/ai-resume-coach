@@ -22,5 +22,119 @@
     "raw_text": "测试简历 只有很少内容",
     "expect_skills_contain": [],
     "expect_experience_years": null
+  },
+  {
+    "id": "devops_engineer",
+    "raw_text": "陈六\nDevOps 工程师\n负责 CI/CD 与容器化平台，精通 Docker、Kubernetes、Terraform、AWS、Ansible、Linux。\n6年云原生经验。",
+    "expect_skills_contain": ["docker", "kubernetes", "terraform"],
+    "expect_experience_years": 6
+  },
+  {
+    "id": "ml_engineer",
+    "raw_text": "赵七\n机器学习工程师\n使用 PyTorch、TensorFlow、Pandas、NumPy、scikit-learn 与 Python 建模。\n4 years 深度学习经验。",
+    "expect_skills_contain": ["python", "pytorch"],
+    "expect_experience_years": 4
+  },
+  {
+    "id": "data_scientist",
+    "raw_text": "孙八\n数据科学家\n用 Python、机器学习、深度学习、Pandas、SQL 做用户增长建模。\n5年经验。",
+    "expect_skills_contain": ["python", "机器学习"],
+    "expect_experience_years": 5
+  },
+  {
+    "id": "backend_java",
+    "raw_text": "周九\nJava 后端工程师\n使用 Java、Spring Boot、MySQL、Redis、Docker 构建交易系统。\n7年经验。",
+    "expect_skills_contain": ["java", "spring boot"],
+    "expect_experience_years": 7
+  },
+  {
+    "id": "fullstack_engineer",
+    "raw_text": "吴十\n全栈工程师\n擅长 React、Node、TypeScript、PostgreSQL、Docker。\n3 years 全栈开发经验。",
+    "expect_skills_contain": ["react", "node", "typescript"],
+    "expect_experience_years": 3
+  },
+  {
+    "id": "qa_engineer",
+    "raw_text": "郑十一\n测试开发工程师\n用 Python、Pytest、Selenium、Linux、Git、CI/CD 搭建自动化测试。\n4年经验。",
+    "expect_skills_contain": ["python", "linux"],
+    "expect_experience_years": 4
+  },
+  {
+    "id": "security_engineer",
+    "raw_text": "冯十二\n安全工程师\n熟悉 Linux、Docker、Kubernetes、AWS、Python、Nginx 安全加固。\n6 years 安全经验。",
+    "expect_skills_contain": ["linux", "docker"],
+    "expect_experience_years": 6
+  },
+  {
+    "id": "cloud_architect",
+    "raw_text": "蒋十三\n云架构师\n主导 AWS、Azure、GCP、Terraform、Kubernetes 多云架构。\n10年经验。",
+    "expect_skills_contain": ["aws", "terraform"],
+    "expect_experience_years": 10
+  },
+  {
+    "id": "frontend_vue",
+    "raw_text": "韩十四\n前端工程师\n使用 Vue、TypeScript、Sass、Webpack、HTML、CSS 开发 Web 应用。\n2年经验。",
+    "expect_skills_contain": ["vue", "typescript"],
+    "expect_experience_years": 2
+  },
+  {
+    "id": "data_analyst",
+    "raw_text": "杨十五\n数据分析师\n熟练 SQL、Python、Pandas、Tableau、Excel 做业务分析。\n3 years 经验。",
+    "expect_skills_contain": ["sql", "python"],
+    "expect_experience_years": 3
+  },
+  {
+    "id": "ios_engineer",
+    "raw_text": "朱十六\niOS 开发工程师\n使用 Swift、Objective-C、Xcode、Git 开发移动端。\n5年经验。",
+    "expect_skills_contain": ["git"],
+    "expect_experience_years": 5
+  },
+  {
+    "id": "blockchain_engineer",
+    "raw_text": "秦十七\n区块链工程师\n使用 Rust、Go、Solidity、Docker、Linux 开发链上协议。\n4 years 经验。",
+    "expect_skills_contain": ["rust", "go"],
+    "expect_experience_years": 4
+  },
+  {
+    "id": "sre_engineer",
+    "raw_text": "许十八\nSRE 工程师\n运维 Kubernetes、Prometheus、Grafana、Go、Linux、AWS 保障稳定性。\n7年经验。",
+    "expect_skills_contain": ["kubernetes", "go"],
+    "expect_experience_years": 7
+  },
+  {
+    "id": "backend_english",
+    "raw_text": "Senior Backend Engineer with 8 years experience using Python, Go, PostgreSQL, Redis and Docker to build distributed systems.",
+    "expect_skills_contain": ["python", "go"],
+    "expect_experience_years": 8
+  },
+  {
+    "id": "boundary_no_years",
+    "raw_text": "后端开发\n技能 Python、Django、FastAPI、Redis，负责 API 网关与鉴权。\n无明确工作年限。",
+    "expect_skills_contain": ["python", "django"],
+    "expect_experience_years": null
+  },
+  {
+    "id": "boundary_minimal",
+    "raw_text": "测试简历 仅少量信息 无技能无年限",
+    "expect_skills_contain": [],
+    "expect_experience_years": null
+  },
+  {
+    "id": "negative_pm_no_skills",
+    "raw_text": "产品经理\n负责需求分析与团队协作，推动版本迭代。\n3年产品经验。",
+    "expect_skills_contain": [],
+    "expect_experience_years": 3
+  },
+  {
+    "id": "backend_csharp",
+    "raw_text": "钱十九\nC# 后端工程师\n使用 .NET、SQL Server、Azure、Docker 开发企业系统。\n5年经验。",
+    "expect_skills_contain": ["c#", "azure"],
+    "expect_experience_years": 5
+  },
+  {
+    "id": "golang_kafka",
+    "raw_text": "后端工程师\n使用 Go (Golang)、gRPC、Kafka、Redis 构建消息中间件。",
+    "expect_skills_contain": ["go", "kafka"],
+    "expect_experience_years": null
   }
 ]

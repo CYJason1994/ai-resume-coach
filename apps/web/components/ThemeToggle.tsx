@@ -21,6 +21,15 @@ export default function ThemeToggle() {
     apply(saved);
   }, []);
 
+  // P2-14：选中「跟随系统」时，实时响应操作系统主题变化；切走时移除监听
+  useEffect(() => {
+    if (theme !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => apply("system");
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [theme]);
+
   function change(next: Theme) {
     setTheme(next);
     localStorage.setItem("theme", next);

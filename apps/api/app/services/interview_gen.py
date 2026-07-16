@@ -19,7 +19,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import LlmUnavailableError
-from app.core.llm import get_llm
+from app.core.llm import get_llm, reset_llm_cost_key, set_llm_cost_key
 from app.core.logging import get_logger
 from app.models.models import InterviewQuestion, Job
 from app.schemas.schemas import ResumeStructured
@@ -148,7 +148,10 @@ async def generate_questions(
     - task_id：归属本次生成任务，供 GET 按任务精确隔离取回（P1-A）。
     - 幂等：生成前清空该 (resume_id, job_id) 旧题，重生成不重复累积。
     - 韧性：任何生成阶段异常均回退规则模板（P3-A），保证 MVP 无 LLM 也能出结果。
+    - P1-6：以 resume_id 作成本核算键，单次简历匹配受单份成本上限约束。
     """
+    # P1-6：绑定成本核算键（单份简历成本上限），覆盖下方 LLM 调用
+    tok = set_llm_cost_key(str(resume_id))
     # 幂等：清旧
     await session.execute(
         delete(InterviewQuestion).where(
@@ -172,6 +175,9 @@ async def generate_questions(
         logger.warning("interview_llm_failed", error=str(e), mode="rule_fallback")
         degraded = True
         raw_items = _rule_questions(structured, job)
+    finally:
+        # P1-6：无论 LLM 路径还是规则兜底，恢复成本核算上下文
+        reset_llm_cost_key(tok)
 
     rows: list[InterviewQuestion] = []
     order = 0

@@ -73,18 +73,17 @@ export const api = {
     return res.json();
   },
   async getTask(taskId: string, token: string): Promise<TaskStatus> {
-    return request<TaskStatus>(`/api/tasks/${taskId}?token=${encodeURIComponent(token)}`, {
+    return request<TaskStatus>(`/api/tasks/${taskId}`, {
       headers: { "X-Access-Token": token },
     });
   },
   async getResult(taskId: string, token: string): Promise<ResumeResult> {
-    return request<ResumeResult>(
-      `/api/tasks/${taskId}/result?token=${encodeURIComponent(token)}`,
-      { headers: { "X-Access-Token": token } }
-    );
+    return request<ResumeResult>(`/api/tasks/${taskId}/result`, {
+      headers: { "X-Access-Token": token },
+    });
   },
   async deleteResume(resumeId: string, token: string): Promise<void> {
-    return request<void>(`/api/resumes/${resumeId}?token=${encodeURIComponent(token)}`, {
+    return request<void>(`/api/resumes/${resumeId}`, {
       method: "DELETE",
       headers: { "X-Access-Token": token },
     });
@@ -101,10 +100,9 @@ export const api = {
     });
   },
   async getInterview(taskId: string, token: string): Promise<InterviewList> {
-    return request<InterviewList>(
-      `/api/interviews/${taskId}?token=${encodeURIComponent(token)}`,
-      { headers: { "X-Access-Token": token } }
-    );
+    return request<InterviewList>(`/api/interviews/${taskId}`, {
+      headers: { "X-Access-Token": token },
+    });
   },
   // ── 模拟面试官（M3）──
   async createSession(
@@ -124,10 +122,9 @@ export const api = {
     });
   },
   async getSession(sessionId: string, token: string): Promise<InterviewSession> {
-    return request<InterviewSession>(
-      `/api/interview-sessions/${sessionId}?token=${encodeURIComponent(token)}`,
-      { headers: { "X-Access-Token": token } }
-    );
+    return request<InterviewSession>(`/api/interview-sessions/${sessionId}`, {
+      headers: { "X-Access-Token": token },
+    });
   },
   async finishSession(sessionId: string, token: string): Promise<SessionOverall> {
     return request<SessionOverall>(`/api/interview-sessions/${sessionId}/finish`, {

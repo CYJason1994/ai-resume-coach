@@ -13,6 +13,7 @@ from arq.connections import RedisSettings
 from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.core.llm import get_llm
 from app.core.logging import get_logger
 from app.models.models import InterviewQuestion, JobMatch, Job, Resume, ResumeParse, Task
 from app.services.compliance import purge_resume_personal_data
@@ -26,6 +27,49 @@ from app.services.storage import get_storage
 
 settings = get_settings()
 logger = get_logger("worker.tasks")
+
+# P2-6：running 超过此时长（秒）视为僵尸任务，回收重跑
+STALE_RUNNING_SECONDS = 600
+
+
+def _task_is_finished(task) -> bool:
+    """P2-4：已完成任务（ARQ at-least-once 重投递）直接跳过，避免重复工作。"""
+    return getattr(task, "status", None) == "done"
+
+
+def _reap_stale_task(task) -> bool:
+    """P2-6：running 且 updated_at 过旧 → 视为僵尸，重置为 pending 重新执行。
+
+    返回 True 表示已重置（调用方随后会重新置 running 并继续执行）。
+    """
+    status = getattr(task, "status", None)
+    updated = getattr(task, "updated_at", None)
+    if status == "running" and updated is not None:
+        age = (datetime.now(timezone.utc) - updated).total_seconds()
+        if age > STALE_RUNNING_SECONDS:
+            logger.warning(
+                "task_stale_reaped",
+                resume_id=str(getattr(task, "resume_id", "?")),
+                age=age,
+            )
+            task.status = "pending"
+            task.error_text = None
+            return True
+    return False
+
+
+def _worker_budget_exhausted() -> bool:
+    """P1-7：全局 LLM 日预算耗尽，worker 拒绝新的 LLM 工作。
+
+    由同一 LlmProvider 的进程内日累计驱动（HTTP 路由与 worker 共用），
+    预算耗尽时调用方将任务降级为 failed-with-notice，避免继续烧钱。
+    注：进程内计数，多副本部署需迁 Redis（见 llm.py TODO），此处为最小可行护栏。
+    """
+    try:
+        return get_llm().daily_spend >= settings.LLM_DAILY_BUDGET
+    except Exception:  # noqa: BLE001
+        return False
+
 
 _redis = None
 
@@ -76,6 +120,19 @@ async def process_resume_task(ctx: dict, resume_id: str) -> None:
             await session.commit()
             return
 
+        # P2-4：已完成任务（ARQ at-least-once 重投递）跳过，不重复工作
+        if _task_is_finished(task):
+            logger.info("process_redelivered_done", resume_id=resume_id)
+            return
+        # P2-6：僵尸任务回收（running 且 updated_at 过旧），重置后继续重跑
+        _reap_stale_task(task)
+        # P1-7：全局 LLM 日预算耗尽 → 拒绝新 worker 工作，降级为 failed-with-notice
+        if _worker_budget_exhausted():
+            task.status = "failed"
+            task.error_text = "全局 LLM 日预算已耗尽，任务暂停（请稍后重试或人工/规则处理）"
+            await session.commit()
+            return
+
         task.status = "running"
         task.progress = 5
         await session.commit()
@@ -113,7 +170,7 @@ async def process_resume_task(ctx: dict, resume_id: str) -> None:
         # 3) 结构化（LLM，失败回退规则）
         structured = ResumeStructured()
         try:
-            structured = await extract_structured(raw_text)
+            structured = await extract_structured(raw_text, cost_key=str(rid))
             resume.status = "parsed"
         except Exception as e:  # noqa: BLE001
             logger.warning("extract_failed", error=str(e))
@@ -158,6 +215,19 @@ async def generate_interview_task(
         if not job:
             task.status = "failed"
             task.error_text = "目标岗位不存在"
+            await session.commit()
+            return
+
+        # P2-4：已完成任务（ARQ at-least-once 重投递）跳过
+        if _task_is_finished(task):
+            logger.info("interview_redelivered_done", task_id=task_id)
+            return
+        # P2-6：僵尸任务回收（running 且 updated_at 过旧）
+        _reap_stale_task(task)
+        # P1-7：全局 LLM 日预算耗尽 → 拒绝新 worker 工作，降级为 failed-with-notice
+        if _worker_budget_exhausted():
+            task.status = "failed"
+            task.error_text = "全局 LLM 日预算已耗尽，面试题生成已暂停（请稍后重试）"
             await session.commit()
             return
 
