@@ -52,7 +52,7 @@ class RedisQuotaEnforcer:
                 await self._client.expire(key, self._window)
             return n <= self._limit
         except Exception as e:  # noqa: BLE001 — Redis 故障降级放行 + 熔断
-            logger.warning("quota_redis_error", error=str(e), msg="配额 Redis 不可用，熔断降级为 Noop")
+            logger.warning("quota_redis_error", error=str(e), message="配额 Redis 不可用，熔断降级为 Noop")
             _downgrade_to_noop()
             return True
 
@@ -97,7 +97,7 @@ class RedisGlobalEnforcer:
             logger.warning(
                 "quota_global_redis_error",
                 error=str(e),
-                msg="全局配额 Redis 不可用，熔断降级为放行",
+                message="全局配额 Redis 不可用，熔断降级为放行",
             )
             _downgrade_global_to_allow()
             return True
@@ -127,7 +127,7 @@ def get_global_enforcer():
                 client, QUOTA_GLOBAL_LIMIT, settings.QUOTA_WINDOW_SECONDS
             )
         except Exception as e:  # noqa: BLE001
-            logger.warning("quota_global_init_failed", error=str(e), msg="使用全局 Noop（不限制）")
+            logger.warning("quota_global_init_failed", error=str(e), message="使用全局 Noop（不限制）")
             _global_enforcer = _AllowGlobal()
     return _global_enforcer
 
@@ -160,7 +160,7 @@ def get_quota_enforcer() -> QuotaEnforcer:
             )
             _enforcer = RedisQuotaEnforcer(client, settings.QUOTA_LIMIT, settings.QUOTA_WINDOW_SECONDS)
         except Exception as e:  # noqa: BLE001
-            logger.warning("quota_init_failed", error=str(e), msg="使用 Noop 配额（不限制）")
+            logger.warning("quota_init_failed", error=str(e), message="使用 Noop 配额（不限制）")
             _enforcer = NoopQuotaEnforcer()
     return _enforcer
 

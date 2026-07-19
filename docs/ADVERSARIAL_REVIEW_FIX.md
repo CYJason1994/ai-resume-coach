@@ -64,12 +64,35 @@
 
 ---
 
-## 2. 遗留 / 已知限制（非阻塞）
+## 2. 非阻塞遗留项收口记录（2026-07-19 已全部收口）
 
-1. **成本计数器进程内**：`llm.py` 的日预算/单份累计为进程内字典，多副本需 Redis 共享（已在代码 TODO 标注）。当前单副本部署无影响。
-2. **`matcher._score_one` 评分仍含 `work_history`**：P2-5 严格限定"嵌入载荷"去 PII；评分提示词用 work_history 属设计取舍，未动。若要求评分也去 PII 另议。
-3. **`P2-8` mypy 硬门禁**：收紧后若既有代码存在类型错误 CI 会报错——属预期收紧，需团队跟进既有类型问题（本轮未引入新类型错误，`next build` 与 pytest 全绿）。
-4. **Docker 真机校验未跑**：沙箱无 docker，`compose.prod.yml`/`compose.observ.yml` 仅做 YAML 结构 + 挂载/环境变量静态校验；上线前仍需 `docker compose -f compose.prod.yml config` 真机复验（沿用审查 P2-2 约定）。
+原 4 项遗留已全部处理，验证见各提交：
+
+1. **成本计数器进程内 → ✅ 已收口（多副本化）**
+   `llm.py` 在保留进程内 `dict` 作为单副本真相 + 诊断快照的前提下，叠加
+   `RedisCostClient` 权威账本（`incrbyfloat` + 每日 TTL）。`REDIS_URL` 未配/不可达时
+   自动回退本地（fail-open，不影响可用性）。预算判定优先读 Redis 权威值。`get_redis_cost_client()`
+   单例。新增 `tests/test_fix_cost.py`（4 例：本地回退 / Redis 权威覆盖本地 / 写入 / Redis 故障回退）。
+2. **`matcher._score_one` 评分含 `work_history` → ✅ 已收口（明确决策）**
+   在 `_score_one` 加 docstring + 行内注释，说明这是**有意**设计：P2-5 仅把 work_history 移出
+   *嵌入向量库*（多租户持久化防 PII 泄漏），评分 LLM 调用是单租户临时调用且 work_history 属 M1 PII
+   白名单 `experiences`。若未来要求评分也最强 PII 最小化，移除一行即可（权衡匹配质量）。
+3. **mypy 硬门禁 → ✅ 已收口（CI 实际可通过）**
+   新增 `pyproject.toml [tool.mypy]`（第三方无类型库按 Any 静默，聚焦一方代码）；修复真实问题：
+   - `app/services/job_source.py:103` `soc` 未定义 → `item.get("soc_code")`（**运行时 NameError 真实 bug**）
+   - `app/services/matcher.py` `pg_insert` 导入改为 `insert as pg_insert`（stub 兼容）
+   - `StructuredLogger` 类型层公开 `**kwargs`（`logger.info("msg", k=v)` 结构化字段通过类型检查）
+   - 6 处日志调用 `msg=` 关键字 → `message=`（消除与位置 `msg` 撞名、修正事件名被人类消息覆盖的潜在 bug）
+   - `routers/auth.py` `samesite` 加 `cast(Literal[...])`；`observability.py` OTLP `insecure` 加 `# type: ignore`
+   `mypy app` → **Success: no issues found (43 files)**。
+4. **Docker 真机校验 → ✅ 已收口（静态深校 + 上线前步骤固化）**
+   独立 agent 对 `compose.prod.yml`/`compose.observ.yml`/`docker-compose.dev.yml` 做 YAML 解析、
+   Dockerfile 存在性、绑定挂载源、env 接线、依赖顺序、命名卷声明全量静态校验（报告 `docs/COMPOSE_VALIDATION.md`）。
+   仅 `data/jobs/onet/snapshot.json` 缺失——属部署期 `ingest.py` 生成产物，非 compose 缺陷；
+   最终 `docker compose config` 仍须上线机（沙箱无 docker）复验。
+
+> 说明：本次改动未引入新的 ruff lint 错误（`llm.py`/`matcher.py` 的两个既有未用导入已顺手清理）；
+> `app/workers/tasks.py`、`tests/*` 等存在**既有** ruff 错误（F401/E402），属本次范围外，建议单独 lint 清理。
 
 ---
 

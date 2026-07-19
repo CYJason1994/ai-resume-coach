@@ -12,12 +12,10 @@ from __future__ import annotations
 import json
 import uuid
 from sqlalchemy import select
-try:  # SQLAlchemy 2.0 的 postgresql 方言以 `insert` 暴露 PG 专属 upsert
-    from sqlalchemy.dialects.postgresql import pg_insert
-except ImportError:  # noqa: BLE001 — 兼容不同导出位置/版本
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
+# SQLAlchemy 2.0 以 `insert` 暴露 PG 专属 upsert（pg_insert 为旧别名，部分 stub 未声明）
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.core.llm import LlmUnavailableError, get_llm, reset_llm_cost_key, set_llm_cost_key
+from app.core.llm import get_llm, reset_llm_cost_key, set_llm_cost_key
 from app.core.logging import get_logger
 from app.models.models import Job, JobMatch
 from app.schemas.schemas import ResumeStructured
@@ -174,11 +172,22 @@ async def _persist_matches(session, matches: list[JobMatch]) -> None:
 
 
 async def _score_one(structured: ResumeStructured, job: Job) -> tuple[float, list, list, str]:
+    """LLM 精排打分（单租户、临时调用）。
+
+    设计决策（收口自对抗审查遗留项）：此处**有意**包含 `work_history`，
+    与 P2-5「嵌入载荷去 work_history」并不冲突——
+    - 嵌入向量写入的是**多租户、持久化**的 pgvector 库，必须杜绝 PII 泄漏；
+    - 本打分是**单租户、临时性**的 LLM 调用，仅用用户*自己*的简历数据为其本人
+      生成匹配结果，且 `work_history` 属于 M1 PII 白名单中的 `experiences`（允许发 LLM）。
+    若未来要求评分也做最强 PII 最小化，移除下一行的 work_history 引用即可
+    （会牺牲一定匹配质量，按合规需求取舍）。
+    """
     llm = get_llm()
     job_skills = job.required_skills or []
     prompt = (
         "你是招聘匹配专家。给定简历与岗位要求，评估匹配度。\n"
         f"简历技能: {structured.skills}\n"
+        # 见函数 docstring：work_history 此处为有意包含（单租户临时调用，属 PII 白名单）
         f"简历经历: {structured.work_history}\n"
         f"岗位: {job.title_zh or job.title}\n"
         f"岗位要求技能: {job_skills}\n"

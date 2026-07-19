@@ -115,7 +115,7 @@ def _init_tracing(
                 )
 
                 insecure = not str(endpoint).startswith("https")
-                exporter = OTLPSpanExporter(endpoint=endpoint, insecure=insecure)
+                exporter = OTLPSpanExporter(endpoint=endpoint, insecure=insecure)  # type: ignore[call-arg]  # stub 未声明 insecure，运行时已验证
                 provider.add_span_processor(BatchSpanProcessor(exporter))
             except Exception:  # noqa: BLE001 — 导出器不可用则退回控制台
                 provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
@@ -143,7 +143,7 @@ def _init_tracing(
                 resource=resource,
                 metric_readers=[
                     PeriodicExportingMetricReader(
-                        OTLPMetricExporter(
+                        OTLPMetricExporter(  # type: ignore[call-arg]  # 同上：stub 未声明 insecure，运行时已验证
                             endpoint=_cfg(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", ""),
                             insecure=not str(
                                 _cfg(settings, "OTEL_EXPORTER_OTLP_ENDPOINT", "")

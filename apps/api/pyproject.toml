@@ -44,3 +44,14 @@ target-version = "py311"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+# M4 遗留3 收口：mypy 硬门禁（ci.yml `mypy app`，P2-8 已去 `|| true`）。
+# 第三方无类型标注库按 Any 静默处理（聚焦一方 app 代码的类型正确性），
+# 避免分析其源码/缺失 stub 造成的噪声失败，使门禁真正可过且有意义。
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = false
+ignore_missing_imports = true
+follow_imports = "silent"
+disallow_untyped_defs = false
+no_implicit_optional = true

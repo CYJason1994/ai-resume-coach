@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime, timezone
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -40,7 +41,7 @@ def _set_session_cookie(response: Response, token: str) -> None:
         value=token,
         httponly=True,
         secure=_settings.is_production,
-        samesite=_settings.AUTH_COOKIE_SAMESITE,
+        samesite=cast(Literal["lax", "strict", "none"], _settings.AUTH_COOKIE_SAMESITE),
         max_age=_settings.AUTH_JWT_TTL_SECONDS,
         path="/",
     )

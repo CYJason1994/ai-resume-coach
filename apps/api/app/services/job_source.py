@@ -100,7 +100,7 @@ class JobSourceProvider(ABC):
                         description_zh=item.get("description_zh"),
                         required_skills=item.get("required_skills", []),
                         required_skills_zh=item.get("required_skills_zh"),
-                        soc_code=soc,
+                        soc_code=item.get("soc_code"),
                         is_seed=True,
                     )
                     session.add(job)
